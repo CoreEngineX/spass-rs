@@ -1,0 +1,33 @@
+[package]
+name = "spass-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "spass"
+path = "src/main.rs"
+
+[dependencies]
+spass = { path = "../spass-rs", features = ["export-json"] }
+clap.workspace = true
+thiserror.workspace = true
+
+# For password input
+rpassword = "7.3"
+
+# For progress bars
+indicatif = "0.17"
+
+# For colored output
+colored = "2.1"
+
+# For file I/O
+anyhow = "1.0"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"

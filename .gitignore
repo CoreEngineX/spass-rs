@@ -1,0 +1,21 @@
+/target
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Sensitive / generated outputs — never commit decrypted data or real exports
+decrypted_output.txt
+passwords.csv
+*.spass
+
+# Backup / stale source trees (root-level only)
+/src/
+/src_backup/
+/README.md.backup

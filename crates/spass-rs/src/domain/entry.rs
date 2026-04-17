@@ -1,5 +1,19 @@
 use super::{EntryName, EntryPassword, Note, SpassError, SpassResult, Url, Username};
 
+#[cfg(feature = "export-json")]
+impl serde::Serialize for PasswordEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(5))?;
+        map.serialize_entry("url", self.url.as_str())?;
+        map.serialize_entry("username", self.username.as_str())?;
+        map.serialize_entry("password", self.password.as_str())?;
+        map.serialize_entry("name", self.name.as_str())?;
+        map.serialize_entry("note", self.note.as_str())?;
+        map.end()
+    }
+}
+
 /// Classifies a password entry by its URL scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryType {

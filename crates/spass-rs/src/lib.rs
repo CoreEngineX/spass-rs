@@ -36,3 +36,6 @@ pub mod parser;
 pub mod pipeline;
 
 pub use domain::{SpassError, SpassResult};
+
+#[cfg(any(test, feature = "generate-fixtures"))]
+pub mod testkit;

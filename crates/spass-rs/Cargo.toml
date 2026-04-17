@@ -35,6 +35,7 @@ default = ["parser-spass", "export-csv"]
 parser-spass = ["csv"]
 export-csv = ["csv"]
 export-json = ["serde", "serde_json"]
+generate-fixtures = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

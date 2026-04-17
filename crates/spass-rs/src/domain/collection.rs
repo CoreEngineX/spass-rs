@@ -13,6 +13,11 @@ impl PasswordEntryCollection {
         Self::default()
     }
 
+    /// Creates an empty collection with pre-allocated capacity.
+    pub fn with_capacity(cap: usize) -> Self {
+        Self { entries: Vec::with_capacity(cap) }
+    }
+
     /// Appends an entry.
     pub fn push(&mut self, entry: PasswordEntry) {
         self.entries.push(entry);
@@ -54,6 +59,18 @@ impl PasswordEntryCollection {
     /// Returns an iterator over entries.
     pub fn iter(&self) -> std::slice::Iter<'_, PasswordEntry> {
         self.entries.iter()
+    }
+}
+
+#[cfg(feature = "export-json")]
+impl serde::Serialize for PasswordEntryCollection {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.entries.len()))?;
+        for e in &self.entries {
+            seq.serialize_element(e)?;
+        }
+        seq.end()
     }
 }
 

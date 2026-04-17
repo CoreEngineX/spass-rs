@@ -1,5 +1,6 @@
 //! Decryption pipeline for processing `SPass` files end-to-end.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 use crate::crypto::{CipherEngine, CryptoValidator, KeyDerivation, PBKDF2_ITERATIONS};
@@ -86,6 +87,7 @@ impl DecryptionPipeline {
     /// let collection = pipeline.decrypt_file("passwords.spass", &password).unwrap();
     /// println!("Decrypted {} passwords", collection.len());
     /// ```
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn decrypt_file<P: AsRef<Path>>(
         &self,
         path: P,
@@ -95,7 +97,7 @@ impl DecryptionPipeline {
         self.decrypt_data(decoded.ciphertext(), password, decoded.salt(), decoded.iv())
     }
 
-    /// Decrypts a Base64-encoded `.spass` payload.
+    /// Decrypts a `.spass` file from its text content.
     ///
     /// # Errors
     ///

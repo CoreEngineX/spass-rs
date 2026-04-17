@@ -2,6 +2,7 @@ use aes::Aes256;
 use cbc::cipher::generic_array::GenericArray;
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use cbc::Decryptor;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use super::key_derivation::DerivedKey;
@@ -50,6 +51,10 @@ impl CipherEngine {
         if let Ok(plaintext) = result {
             Ok(DecryptedData::new(plaintext.to_vec()))
         } else {
+            // Constant-time delay on native targets to prevent timing-based
+            // distinction between wrong password and invalid padding.
+            // wasm32 has no threads, so the sleep is skipped there.
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::sleep(Duration::from_micros(100));
             Err(SpassError::Decryption("Decryption failed".to_string()))
         }

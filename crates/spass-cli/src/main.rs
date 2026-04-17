@@ -10,7 +10,7 @@ mod output;
 use clap::Parser;
 
 use cli::{Cli, Commands};
-use commands::{DecryptCommand, InfoCommand};
+use commands::{DecryptCommand, GenerateCommand, InfoCommand};
 
 fn main() {
     // Parse command-line arguments
@@ -39,6 +39,23 @@ fn main() {
 
         Commands::Info { input } => {
             let cmd = InfoCommand { input };
+            cmd.execute()
+        }
+
+        Commands::Generate {
+            count,
+            output,
+            password,
+            warning_rate,
+            duplicate_rate,
+        } => {
+            let cmd = GenerateCommand {
+                count,
+                output,
+                password,
+                warning_rate,
+                duplicate_rate,
+            };
             cmd.execute()
         }
     };

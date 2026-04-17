@@ -12,7 +12,7 @@ name = "spass"
 path = "src/main.rs"
 
 [dependencies]
-spass = { path = "../spass-rs", features = ["export-json"] }
+spass = { path = "../spass-rs", features = ["export-json", "generate-fixtures"] }
 clap.workspace = true
 thiserror.workspace = true
 

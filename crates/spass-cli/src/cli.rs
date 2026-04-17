@@ -47,6 +47,29 @@ pub enum Commands {
         #[arg(value_name = "FILE")]
         input: PathBuf,
     },
+
+    /// Generate a synthetic .spass fixture file with N password entries
+    Generate {
+        /// Number of password entries to generate
+        #[arg(value_name = "N")]
+        count: usize,
+
+        /// Output path for the generated .spass file
+        #[arg(short, long, value_name = "FILE", default_value = "generated.spass")]
+        output: PathBuf,
+
+        /// Encryption password for the generated file
+        #[arg(short, long, value_name = "PASSWORD", default_value = "TestPassword123")]
+        password: String,
+
+        /// Fraction of entries with a missing URL (0.0–1.0)
+        #[arg(long, value_name = "FRAC", default_value_t = 0.005)]
+        warning_rate: f64,
+
+        /// Fraction of entries that are duplicates (0.0–1.0)
+        #[arg(long, value_name = "FRAC", default_value_t = 0.02)]
+        duplicate_rate: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

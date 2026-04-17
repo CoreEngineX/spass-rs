@@ -2,6 +2,7 @@
 members = [
     "crates/spass-rs",
     "crates/spass-cli",
+    "crates/spass-wasm",
 ]
 resolver = "2"
 

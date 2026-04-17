@@ -885,6 +885,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spass-wasm"
+version = "0.2.0"
+dependencies = [
+ "js-sys",
+ "serde_json",
+ "spass",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

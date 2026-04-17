@@ -15,7 +15,9 @@ impl PasswordEntryCollection {
 
     /// Creates an empty collection with pre-allocated capacity.
     pub fn with_capacity(cap: usize) -> Self {
-        Self { entries: Vec::with_capacity(cap) }
+        Self {
+            entries: Vec::with_capacity(cap),
+        }
     }
 
     /// Appends an entry.

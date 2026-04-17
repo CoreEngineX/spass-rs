@@ -59,7 +59,12 @@ pub enum Commands {
         output: PathBuf,
 
         /// Encryption password for the generated file
-        #[arg(short, long, value_name = "PASSWORD", default_value = "TestPassword123")]
+        #[arg(
+            short,
+            long,
+            value_name = "PASSWORD",
+            default_value = "TestPassword123"
+        )]
         password: String,
 
         /// Fraction of entries with a missing URL (0.0–1.0)

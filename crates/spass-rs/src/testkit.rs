@@ -18,10 +18,10 @@
 //! ```
 
 use aes::Aes256;
-use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
-use cbc::cipher::generic_array::GenericArray;
-use cbc::Encryptor;
 use base64::{engine::general_purpose, Engine};
+use cbc::cipher::generic_array::GenericArray;
+use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+use cbc::Encryptor;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
@@ -118,24 +118,28 @@ impl SpassGenerator {
     }
 
     /// Appends an entry.
+    #[must_use]
     pub fn entry(mut self, entry: TestEntry) -> Self {
         self.entries.push(entry);
         self
     }
 
     /// Appends multiple entries.
+    #[must_use]
     pub fn entries(mut self, entries: impl IntoIterator<Item = TestEntry>) -> Self {
         self.entries.extend(entries);
         self
     }
 
     /// Overrides the salt for deterministic output (useful for snapshot tests).
+    #[must_use]
     pub fn with_salt(mut self, salt: [u8; 20]) -> Self {
         self.salt = Some(salt);
         self
     }
 
     /// Overrides the IV for deterministic output (useful for snapshot tests).
+    #[must_use]
     pub fn with_iv(mut self, iv: [u8; 16]) -> Self {
         self.iv = Some(iv);
         self
@@ -145,14 +149,15 @@ impl SpassGenerator {
     ///
     /// The result can be written directly to a `.spass` file or passed to
     /// `DecryptionPipeline::decrypt_string`.
+    #[must_use]
     pub fn generate(&self) -> String {
         let salt = self.salt.unwrap_or([
-            0x53, 0x61, 0x6d, 0x73, 0x75, 0x6e, 0x67, 0x54, 0x65, 0x73,
-            0x74, 0x53, 0x61, 0x6c, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65,
+            0x53, 0x61, 0x6d, 0x73, 0x75, 0x6e, 0x67, 0x54, 0x65, 0x73, 0x74, 0x53, 0x61, 0x6c,
+            0x74, 0x56, 0x61, 0x6c, 0x75, 0x65,
         ]);
         let iv = self.iv.unwrap_or([
-            0x53, 0x61, 0x6d, 0x73, 0x75, 0x6e, 0x67, 0x49, 0x56, 0x56,
-            0x61, 0x6c, 0x75, 0x65, 0x58, 0x58,
+            0x53, 0x61, 0x6d, 0x73, 0x75, 0x6e, 0x67, 0x49, 0x56, 0x56, 0x61, 0x6c, 0x75, 0x65,
+            0x58, 0x58,
         ]);
 
         let plaintext = self.build_plaintext();
@@ -167,6 +172,10 @@ impl SpassGenerator {
     }
 
     /// Generates the `.spass` file and writes it to `path`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the file cannot be written.
     pub fn write_to_file(&self, path: impl AsRef<std::path::Path>) {
         let content = self.generate();
         std::fs::write(path, content).expect("Failed to write test fixture");
@@ -190,7 +199,13 @@ impl SpassGenerator {
         out
     }
 
-    fn encrypt_with_iterations(plaintext: &[u8], password: &str, salt: &[u8; 20], iv: &[u8; 16], iterations: u32) -> Vec<u8> {
+    fn encrypt_with_iterations(
+        plaintext: &[u8],
+        password: &str,
+        salt: &[u8; 20],
+        iv: &[u8; 16],
+        iterations: u32,
+    ) -> Vec<u8> {
         let mut key = [0u8; 32];
         pbkdf2::<Hmac<Sha256>>(password.as_bytes(), salt, iterations, &mut key)
             .expect("PBKDF2 key derivation failed");
@@ -222,15 +237,44 @@ impl SpassGenerator {
 impl SpassGenerator {
     /// Returns a generator pre-loaded with a realistic set of test entries.
     pub fn with_sample_entries(password: impl Into<String>) -> Self {
-        Self::new(password)
-            .entries([
-                TestEntry::new("https://accounts.google.com", "user@gmail.com", "G00gleP@ss!", "Google", "Main"),
-                TestEntry::new("https://github.com", "devuser", "gh_token_abc123", "GitHub", "Work"),
-                TestEntry::new("https://netflix.com", "stream@email.com", "Netfl1x!", "Netflix", ""),
-                TestEntry::new("android://com.samsung.android.app.samsungpay", "user@email.com", "SPayP@ss9", "Samsung Pay", ""),
-                TestEntry::new("https://paypal.com", "payments@email.com", "PayP@l2024!", "PayPal", ""),
-                TestEntry::new("", "admin", "Admin@1234", "Internal Tool", "missing url"),
-            ])
+        Self::new(password).entries([
+            TestEntry::new(
+                "https://accounts.google.com",
+                "user@gmail.com",
+                "G00gleP@ss!",
+                "Google",
+                "Main",
+            ),
+            TestEntry::new(
+                "https://github.com",
+                "devuser",
+                "gh_token_abc123",
+                "GitHub",
+                "Work",
+            ),
+            TestEntry::new(
+                "https://netflix.com",
+                "stream@email.com",
+                "Netfl1x!",
+                "Netflix",
+                "",
+            ),
+            TestEntry::new(
+                "android://com.samsung.android.app.samsungpay",
+                "user@email.com",
+                "SPayP@ss9",
+                "Samsung Pay",
+                "",
+            ),
+            TestEntry::new(
+                "https://paypal.com",
+                "payments@email.com",
+                "PayP@l2024!",
+                "PayPal",
+                "",
+            ),
+            TestEntry::new("", "admin", "Admin@1234", "Internal Tool", "missing url"),
+        ])
     }
 }
 
@@ -273,14 +317,56 @@ mod tests {
         //    duplicate. Tests the warning and duplicate badges on the review page.
         SpassGenerator::new(FIXTURE_PASSWORD)
             .entries([
-                TestEntry::new("https://accounts.google.com", "user@gmail.com",  "G00gleP@ss!",     "Google",    "Main account"),
-                TestEntry::new("https://github.com",           "devuser",         "gh_abc123",        "GitHub",    "Work"),
-                TestEntry::new("https://netflix.com",          "stream@mail.com", "Netfl1x!",         "Netflix",   ""),
-                TestEntry::new("https://github.com",           "devuser",         "gh_abc123",        "GitHub",    ""),  // duplicate
-                TestEntry::new("https://amazon.com",           "buyer@mail.com",  "Amaz0n#1",         "Amazon",    "Prime"),
-                TestEntry::new("https://linkedin.com",         "pro@mail.com",    "L1nked!n",         "LinkedIn",  ""),
-                TestEntry::new("",                             "admin",           "Admin@1234",        "Unknown",   "missing url — warning"),
-                TestEntry::new("https://apple.com",           "me@icloud.com",   "AppleID_99!",       "Apple ID",  "Personal"),
+                TestEntry::new(
+                    "https://accounts.google.com",
+                    "user@gmail.com",
+                    "G00gleP@ss!",
+                    "Google",
+                    "Main account",
+                ),
+                TestEntry::new(
+                    "https://github.com",
+                    "devuser",
+                    "gh_abc123",
+                    "GitHub",
+                    "Work",
+                ),
+                TestEntry::new(
+                    "https://netflix.com",
+                    "stream@mail.com",
+                    "Netfl1x!",
+                    "Netflix",
+                    "",
+                ),
+                TestEntry::new("https://github.com", "devuser", "gh_abc123", "GitHub", ""), // duplicate
+                TestEntry::new(
+                    "https://amazon.com",
+                    "buyer@mail.com",
+                    "Amaz0n#1",
+                    "Amazon",
+                    "Prime",
+                ),
+                TestEntry::new(
+                    "https://linkedin.com",
+                    "pro@mail.com",
+                    "L1nked!n",
+                    "LinkedIn",
+                    "",
+                ),
+                TestEntry::new(
+                    "",
+                    "admin",
+                    "Admin@1234",
+                    "Unknown",
+                    "missing url — warning",
+                ),
+                TestEntry::new(
+                    "https://apple.com",
+                    "me@icloud.com",
+                    "AppleID_99!",
+                    "Apple ID",
+                    "Personal",
+                ),
             ])
             .write_to_file(format!("{FIXTURE_DIR}/test_small.spass"));
 
@@ -291,36 +377,216 @@ mod tests {
         //    fields. Tests all table features at once.
         SpassGenerator::new(FIXTURE_PASSWORD)
             .entries([
-                TestEntry::new("https://accounts.google.com",  "alice@gmail.com",   "G00gl3P@ss!",          "Google",              "Personal"),
-                TestEntry::new("https://accounts.google.com",  "alice@work.com",    "W0rkG00gle#2",         "Google (Work)",       "Work GSuite"),
-                TestEntry::new("https://github.com",           "alice-dev",         "gh_pat_abc123xyz",     "GitHub",              ""),
-                TestEntry::new("https://gitlab.com",           "alice-dev",         "glpat-xyz789",         "GitLab",              "Self-hosted"),
-                TestEntry::new("https://netflix.com",          "alice@gmail.com",   "Netfl1x#Stream",       "Netflix",             ""),
-                TestEntry::new("https://spotify.com",          "alice@gmail.com",   "Sp0tify!Premium",      "Spotify",             ""),
-                TestEntry::new("https://amazon.com",           "alice@gmail.com",   "Am@z0nPrime24",        "Amazon",              "Prime"),
-                TestEntry::new("https://paypal.com",           "alice@gmail.com",   "P@yP@l2024!",          "PayPal",              ""),
-                TestEntry::new("https://apple.com",            "alice@icloud.com",  "AppleID_Secure99!",    "Apple ID",            "Personal"),
-                TestEntry::new("https://microsoft.com",        "alice@outlook.com", "M1cr0s0ft#Office",     "Microsoft",           "Office 365"),
-                TestEntry::new("https://dropbox.com",          "alice@gmail.com",   "Dr0pb0x_Cloud!",       "Dropbox",             ""),
-                TestEntry::new("https://notion.so",            "alice@work.com",    "N0t10n#Team",          "Notion",              "Work"),
-                TestEntry::new("https://slack.com",            "alice@work.com",    "Sl@ck_Work2024",       "Slack",               ""),
-                TestEntry::new("https://figma.com",            "alice@work.com",    "F1gma#Design",         "Figma",               ""),
-                TestEntry::new("https://linear.app",           "alice@work.com",    "L1n3ar!Issues",        "Linear",              ""),
-                TestEntry::new("https://vercel.com",           "alice-dev",         "Vercel_Deploy#1",      "Vercel",              ""),
-                TestEntry::new("https://cloudflare.com",       "alice-dev",         "CF_W0rker$2024",       "Cloudflare",          ""),
-                TestEntry::new("https://bankofamerica.com",    "",                  "B0fA_Secure#9!",       "Bank of America",     "missing username"),
-                TestEntry::new("",                             "admin",             "Admin@1234",            "Internal Dashboard",  "missing url"),
-                TestEntry::new("https://long-subdomain.enterprise-portal.internal.company.example.com", "alice@company.com", "Corp0rate!Pass1", "Work Portal", "Long URL"),
-                TestEntry::new("android://com.google.android.gm",              "alice@gmail.com",  "GmailApp!Pass",     "Gmail App",    ""),
-                TestEntry::new("android://com.netflix.mediaclient",            "alice@gmail.com",  "Netfl1x!",          "Netflix App",  ""),
-                TestEntry::new("android://com.spotify.music",                  "alice@gmail.com",  "Sp0tify!",          "Spotify App",  ""),
-                TestEntry::new("android://com.samsung.android.app.samsungpay", "alice@gmail.com",  "SPayP@ss9",         "Samsung Pay",  ""),
-                TestEntry::new("android://com.robinhood.android",              "alice@gmail.com",  "R0b1nhood#Trade",   "Robinhood",    "Brokerage"),
-                TestEntry::new("https://github.com",           "alice-dev",         "gh_pat_abc123xyz",     "GitHub",              ""),  // duplicate of row 3
-                TestEntry::new("https://twitter.com",          "alice_x",           "p@ssw0rd,with,commas", "X / Twitter",         "has commas in password"),
-                TestEntry::new("https://reddit.com",           "u/alice",           "R3ddit#2024!",         "Reddit",              ""),
-                TestEntry::new("https://discord.com",          "alice#1234",        "D1sc0rd!Server",       "Discord",             "Gaming"),
-                TestEntry::new("https://twitch.tv",            "alicestreams",      "Tw1tch#Stream24",      "Twitch",              ""),
+                TestEntry::new(
+                    "https://accounts.google.com",
+                    "alice@gmail.com",
+                    "G00gl3P@ss!",
+                    "Google",
+                    "Personal",
+                ),
+                TestEntry::new(
+                    "https://accounts.google.com",
+                    "alice@work.com",
+                    "W0rkG00gle#2",
+                    "Google (Work)",
+                    "Work GSuite",
+                ),
+                TestEntry::new(
+                    "https://github.com",
+                    "alice-dev",
+                    "gh_pat_abc123xyz",
+                    "GitHub",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://gitlab.com",
+                    "alice-dev",
+                    "glpat-xyz789",
+                    "GitLab",
+                    "Self-hosted",
+                ),
+                TestEntry::new(
+                    "https://netflix.com",
+                    "alice@gmail.com",
+                    "Netfl1x#Stream",
+                    "Netflix",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://spotify.com",
+                    "alice@gmail.com",
+                    "Sp0tify!Premium",
+                    "Spotify",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://amazon.com",
+                    "alice@gmail.com",
+                    "Am@z0nPrime24",
+                    "Amazon",
+                    "Prime",
+                ),
+                TestEntry::new(
+                    "https://paypal.com",
+                    "alice@gmail.com",
+                    "P@yP@l2024!",
+                    "PayPal",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://apple.com",
+                    "alice@icloud.com",
+                    "AppleID_Secure99!",
+                    "Apple ID",
+                    "Personal",
+                ),
+                TestEntry::new(
+                    "https://microsoft.com",
+                    "alice@outlook.com",
+                    "M1cr0s0ft#Office",
+                    "Microsoft",
+                    "Office 365",
+                ),
+                TestEntry::new(
+                    "https://dropbox.com",
+                    "alice@gmail.com",
+                    "Dr0pb0x_Cloud!",
+                    "Dropbox",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://notion.so",
+                    "alice@work.com",
+                    "N0t10n#Team",
+                    "Notion",
+                    "Work",
+                ),
+                TestEntry::new(
+                    "https://slack.com",
+                    "alice@work.com",
+                    "Sl@ck_Work2024",
+                    "Slack",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://figma.com",
+                    "alice@work.com",
+                    "F1gma#Design",
+                    "Figma",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://linear.app",
+                    "alice@work.com",
+                    "L1n3ar!Issues",
+                    "Linear",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://vercel.com",
+                    "alice-dev",
+                    "Vercel_Deploy#1",
+                    "Vercel",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://cloudflare.com",
+                    "alice-dev",
+                    "CF_W0rker$2024",
+                    "Cloudflare",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://bankofamerica.com",
+                    "",
+                    "B0fA_Secure#9!",
+                    "Bank of America",
+                    "missing username",
+                ),
+                TestEntry::new(
+                    "",
+                    "admin",
+                    "Admin@1234",
+                    "Internal Dashboard",
+                    "missing url",
+                ),
+                TestEntry::new(
+                    "https://long-subdomain.enterprise-portal.internal.company.example.com",
+                    "alice@company.com",
+                    "Corp0rate!Pass1",
+                    "Work Portal",
+                    "Long URL",
+                ),
+                TestEntry::new(
+                    "android://com.google.android.gm",
+                    "alice@gmail.com",
+                    "GmailApp!Pass",
+                    "Gmail App",
+                    "",
+                ),
+                TestEntry::new(
+                    "android://com.netflix.mediaclient",
+                    "alice@gmail.com",
+                    "Netfl1x!",
+                    "Netflix App",
+                    "",
+                ),
+                TestEntry::new(
+                    "android://com.spotify.music",
+                    "alice@gmail.com",
+                    "Sp0tify!",
+                    "Spotify App",
+                    "",
+                ),
+                TestEntry::new(
+                    "android://com.samsung.android.app.samsungpay",
+                    "alice@gmail.com",
+                    "SPayP@ss9",
+                    "Samsung Pay",
+                    "",
+                ),
+                TestEntry::new(
+                    "android://com.robinhood.android",
+                    "alice@gmail.com",
+                    "R0b1nhood#Trade",
+                    "Robinhood",
+                    "Brokerage",
+                ),
+                TestEntry::new(
+                    "https://github.com",
+                    "alice-dev",
+                    "gh_pat_abc123xyz",
+                    "GitHub",
+                    "",
+                ), // duplicate of row 3
+                TestEntry::new(
+                    "https://twitter.com",
+                    "alice_x",
+                    "p@ssw0rd,with,commas",
+                    "X / Twitter",
+                    "has commas in password",
+                ),
+                TestEntry::new(
+                    "https://reddit.com",
+                    "u/alice",
+                    "R3ddit#2024!",
+                    "Reddit",
+                    "",
+                ),
+                TestEntry::new(
+                    "https://discord.com",
+                    "alice#1234",
+                    "D1sc0rd!Server",
+                    "Discord",
+                    "Gaming",
+                ),
+                TestEntry::new(
+                    "https://twitch.tv",
+                    "alicestreams",
+                    "Tw1tch#Stream24",
+                    "Twitch",
+                    "",
+                ),
             ])
             .write_to_file(format!("{FIXTURE_DIR}/test_medium.spass"));
 
@@ -330,10 +596,26 @@ mod tests {
         //    operations on the review page.
         let mut gen = SpassGenerator::new(FIXTURE_PASSWORD);
         let domains = [
-            "google.com", "github.com", "amazon.com", "netflix.com", "spotify.com",
-            "apple.com", "microsoft.com", "dropbox.com", "notion.so", "slack.com",
-            "figma.com", "linear.app", "vercel.com", "cloudflare.com", "twitter.com",
-            "reddit.com", "discord.com", "twitch.tv", "linkedin.com", "facebook.com",
+            "google.com",
+            "github.com",
+            "amazon.com",
+            "netflix.com",
+            "spotify.com",
+            "apple.com",
+            "microsoft.com",
+            "dropbox.com",
+            "notion.so",
+            "slack.com",
+            "figma.com",
+            "linear.app",
+            "vercel.com",
+            "cloudflare.com",
+            "twitter.com",
+            "reddit.com",
+            "discord.com",
+            "twitch.tv",
+            "linkedin.com",
+            "facebook.com",
         ];
         for i in 0..120usize {
             let domain = domains[i % domains.len()];
@@ -354,7 +636,11 @@ mod tests {
                 username,
                 format!("Pass#{suffix}!Secure"),
                 format!("Account {i:03}"),
-                if i % 3 == 0 { format!("note for entry {i}") } else { String::new() },
+                if i % 3 == 0 {
+                    format!("note for entry {i}")
+                } else {
+                    String::new()
+                },
             ));
         }
         gen.write_to_file(format!("{FIXTURE_DIR}/test_large.spass"));
@@ -377,12 +663,36 @@ mod tests {
         const N: usize = 1_000_000;
 
         let domains = [
-            "google.com", "github.com", "amazon.com", "netflix.com", "spotify.com",
-            "apple.com",  "microsoft.com", "dropbox.com", "notion.so", "slack.com",
-            "figma.com",  "linear.app", "vercel.com", "cloudflare.com", "twitter.com",
-            "reddit.com", "discord.com", "twitch.tv", "linkedin.com", "facebook.com",
-            "paypal.com", "stripe.com", "shopify.com", "airbnb.com", "uber.com",
-            "lyft.com",   "zoom.us", "atlassian.com", "salesforce.com", "adobe.com",
+            "google.com",
+            "github.com",
+            "amazon.com",
+            "netflix.com",
+            "spotify.com",
+            "apple.com",
+            "microsoft.com",
+            "dropbox.com",
+            "notion.so",
+            "slack.com",
+            "figma.com",
+            "linear.app",
+            "vercel.com",
+            "cloudflare.com",
+            "twitter.com",
+            "reddit.com",
+            "discord.com",
+            "twitch.tv",
+            "linkedin.com",
+            "facebook.com",
+            "paypal.com",
+            "stripe.com",
+            "shopify.com",
+            "airbnb.com",
+            "uber.com",
+            "lyft.com",
+            "zoom.us",
+            "atlassian.com",
+            "salesforce.com",
+            "adobe.com",
         ];
 
         println!("Building {N} entries…");
@@ -422,7 +732,11 @@ mod tests {
                 final_username,
                 format!("P@ss#{i:07}!Sec"),
                 format!("Account {i:07}"),
-                if i % 5 == 0 { format!("note {i}") } else { String::new() },
+                if i % 5 == 0 {
+                    format!("note {i}")
+                } else {
+                    String::new()
+                },
             ));
         }
 
@@ -503,7 +817,13 @@ mod tests {
         let gen = generator()
             .entry(TestEntry::new("https://a.com", "alice", "pass1", "A", ""))
             .entry(TestEntry::new("https://b.com", "bob", "pass2", "B", "note"))
-            .entry(TestEntry::new("android://com.example", "charlie", "pass3", "App", ""));
+            .entry(TestEntry::new(
+                "android://com.example",
+                "charlie",
+                "pass3",
+                "App",
+                "",
+            ));
 
         let content = generate_low_iter(&gen);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
@@ -535,7 +855,10 @@ mod tests {
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let collection = pipeline().decrypt_string(&content, &pw).unwrap();
 
-        assert_eq!(collection.entries()[0].password.as_str(), "pass,with,commas");
+        assert_eq!(
+            collection.entries()[0].password.as_str(),
+            "pass,with,commas"
+        );
         assert_eq!(collection.entries()[0].name.as_str(), "Site, Inc.");
     }
 }

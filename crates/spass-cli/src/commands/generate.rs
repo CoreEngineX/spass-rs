@@ -9,14 +9,36 @@ use std::time::Instant;
 use crate::error::CliResult;
 
 const DOMAINS: &[&str] = &[
-    "google.com",     "github.com",     "amazon.com",     "netflix.com",
-    "spotify.com",    "apple.com",      "microsoft.com",  "dropbox.com",
-    "notion.so",      "slack.com",      "figma.com",      "linear.app",
-    "vercel.com",     "cloudflare.com", "twitter.com",    "reddit.com",
-    "discord.com",    "twitch.tv",      "linkedin.com",   "facebook.com",
-    "paypal.com",     "stripe.com",     "shopify.com",    "airbnb.com",
-    "uber.com",       "zoom.us",        "atlassian.com",  "salesforce.com",
-    "adobe.com",      "canva.com",
+    "google.com",
+    "github.com",
+    "amazon.com",
+    "netflix.com",
+    "spotify.com",
+    "apple.com",
+    "microsoft.com",
+    "dropbox.com",
+    "notion.so",
+    "slack.com",
+    "figma.com",
+    "linear.app",
+    "vercel.com",
+    "cloudflare.com",
+    "twitter.com",
+    "reddit.com",
+    "discord.com",
+    "twitch.tv",
+    "linkedin.com",
+    "facebook.com",
+    "paypal.com",
+    "stripe.com",
+    "shopify.com",
+    "airbnb.com",
+    "uber.com",
+    "zoom.us",
+    "atlassian.com",
+    "salesforce.com",
+    "adobe.com",
+    "canva.com",
 ];
 
 /// Executes the generate command.
@@ -93,7 +115,11 @@ impl GenerateCommand {
                 final_username,
                 format!("P@ss#{i:07}!Sec"),
                 format!("Account {i:07}"),
-                if i % 5 == 0 { format!("note {i}") } else { String::new() },
+                if i % 5 == 0 {
+                    format!("note {i}")
+                } else {
+                    String::new()
+                },
             ));
 
             if i % 5000 == 0 {

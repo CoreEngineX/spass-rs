@@ -4,11 +4,12 @@
 use std::path::Path;
 
 use crate::crypto::{CipherEngine, CryptoValidator, KeyDerivation, PBKDF2_ITERATIONS};
-use crate::domain::{EntryPassword, PasswordEntryCollection, SpassResult};
+use crate::domain::{DecryptOutcome, EntryPassword, SpassResult, VersionStatus};
 use crate::format::{
-    CipherText, FormatValidator, InitializationVector, Salt, SpassDecoder, SpassFormatVersion,
+    CipherText, DetectedVersion, FormatValidator, InitializationVector, Salt, SpassDecoder,
+    SpassFormatVersion,
 };
-use crate::parser::{FormatId, ParserRegistry};
+use crate::parser::{FormatId, LenientV31Parser, ParserRegistry};
 
 /// Full decryption pipeline for `.spass` files.
 ///
@@ -18,22 +19,35 @@ use crate::parser::{FormatId, ParserRegistry};
 /// 3. Derive AES-256 key via PBKDF2-HMAC-SHA256
 /// 4. Decrypt with AES-256-CBC
 /// 5. Validate the decrypted format (`next_table` marker, size)
-/// 6. Parse the internal CSV into password entries
+/// 6. Detect the version sentinel and dispatch to the strict parser for
+///    that version, or to the schema-driven lenient parser if the
+///    sentinel is unknown
+///
+/// The pipeline returns a [`DecryptOutcome`] carrying the extracted entries
+/// plus a [`VersionStatus`]. Consumers inspect the status to render a
+/// "best-effort" banner when the file's version sentinel wasn't recognised.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use spass::pipeline::DecryptionPipeline;
-/// use spass::domain::EntryPassword;
+/// use spass::domain::{EntryPassword, VersionStatus};
 ///
 /// let pipeline = DecryptionPipeline::new(spass::crypto::PBKDF2_ITERATIONS);
 /// let password = EntryPassword::new("my_password".to_string());
-/// let result = pipeline.decrypt_file("passwords.spass", &password);
+/// let outcome = pipeline.decrypt_file("passwords.spass", &password)?;
 ///
-/// match result {
-///     Ok(collection) => println!("Decrypted {} entries", collection.len()),
-///     Err(e) => eprintln!("Decryption failed: {}", e),
+/// match outcome.version_status {
+///     VersionStatus::Known { .. } => println!("Decrypted {} entries", outcome.entries.len()),
+///     VersionStatus::BestEffort { report } => {
+///         eprintln!(
+///             "warning: unknown .spass version \"{}\"; verify a few entries before importing",
+///             report.sentinel
+///         );
+///     }
+///     _ => {} // VersionStatus is #[non_exhaustive]
 /// }
+/// # Ok::<(), spass::SpassError>(())
 /// ```
 pub struct DecryptionPipeline {
     key_derivation: KeyDerivation,
@@ -42,6 +56,7 @@ pub struct DecryptionPipeline {
     format_validator: FormatValidator,
     decoder: SpassDecoder,
     parser_registry: ParserRegistry,
+    lenient_parser: LenientV31Parser,
 }
 
 impl DecryptionPipeline {
@@ -62,6 +77,7 @@ impl DecryptionPipeline {
             format_validator: FormatValidator::new(),
             decoder: SpassDecoder::new(),
             parser_registry: ParserRegistry::new(),
+            lenient_parser: LenientV31Parser::new(),
         }
     }
 
@@ -73,6 +89,9 @@ impl DecryptionPipeline {
     /// - `SpassError::Parsing` — invalid Base64 or file structure
     /// - `SpassError::Validation` — bad crypto parameters or format marker missing
     /// - `SpassError::Decryption` — wrong password or corrupted data
+    /// - `SpassError::UnknownVersionUnparseable` — line-1 sentinel was
+    ///   unrecognised AND the lenient parser couldn't resolve all 5
+    ///   required columns; the contained report carries the diagnostic
     ///
     /// # Examples
     ///
@@ -82,15 +101,15 @@ impl DecryptionPipeline {
     ///
     /// let pipeline = DecryptionPipeline::new(spass::crypto::PBKDF2_ITERATIONS);
     /// let password = EntryPassword::new("secret".to_string());
-    /// let collection = pipeline.decrypt_file("passwords.spass", &password).unwrap();
-    /// println!("Decrypted {} passwords", collection.len());
+    /// let outcome = pipeline.decrypt_file("passwords.spass", &password).unwrap();
+    /// println!("Decrypted {} passwords", outcome.entries.len());
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub fn decrypt_file<P: AsRef<Path>>(
         &self,
         path: P,
         password: &EntryPassword,
-    ) -> SpassResult<PasswordEntryCollection> {
+    ) -> SpassResult<DecryptOutcome> {
         let decoded = self.decoder.decode_from_file(path)?;
         self.decrypt_data(decoded.ciphertext(), password, decoded.salt(), decoded.iv())
     }
@@ -113,23 +132,12 @@ impl DecryptionPipeline {
     ///   that bypassed PKCS7).
     /// - `SpassError::Decryption` -- wrong password (AES + PKCS7
     ///   rejected the padding).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use spass::pipeline::DecryptionPipeline;
-    /// use spass::domain::EntryPassword;
-    ///
-    /// let pipeline = DecryptionPipeline::default();
-    /// let base64_content = std::fs::read_to_string("export.spass").unwrap();
-    /// let password = EntryPassword::new("password".to_string());
-    /// let collection = pipeline.decrypt_string(&base64_content, &password).unwrap();
-    /// ```
+    /// - `SpassError::UnknownVersionUnparseable` -- see [`Self::decrypt_file`].
     pub fn decrypt_string(
         &self,
         content: &str,
         password: &EntryPassword,
-    ) -> SpassResult<PasswordEntryCollection> {
+    ) -> SpassResult<DecryptOutcome> {
         let decoded = self.decoder.decode_from_bytes(content.as_bytes())?;
         self.decrypt_data(decoded.ciphertext(), password, decoded.salt(), decoded.iv())
     }
@@ -140,23 +148,44 @@ impl DecryptionPipeline {
         password: &EntryPassword,
         salt: Salt<'_>,
         iv: InitializationVector<'_>,
-    ) -> SpassResult<PasswordEntryCollection> {
+    ) -> SpassResult<DecryptOutcome> {
         self.crypto_validator.validate_ciphertext(ciphertext)?;
 
         let key = self.key_derivation.derive_key(password, salt)?;
         let decrypted = self.cipher.decrypt(ciphertext, &key, iv)?;
 
         self.format_validator.validate_data_size(&decrypted)?;
-        let version = SpassFormatVersion::detect(&decrypted)?;
-        self.format_validator
-            .validate_spass_marker(&decrypted, version)?;
+        let detected = SpassFormatVersion::detect(&decrypted)?;
 
-        let format_id = match version {
-            SpassFormatVersion::V30 => FormatId::SpassCsvV30,
-            SpassFormatVersion::V31 => FormatId::SpassCsvV31,
-        };
-
-        self.parser_registry.parse(format_id, decrypted.as_bytes())
+        match detected {
+            DetectedVersion::Known(version) => {
+                // Strict path: known version -> marker check then parser dispatch.
+                self.format_validator
+                    .validate_spass_marker(&decrypted, version)?;
+                let format_id = match version {
+                    SpassFormatVersion::V30 => FormatId::SpassCsvV30,
+                    SpassFormatVersion::V31 => FormatId::SpassCsvV31,
+                };
+                let entries = self
+                    .parser_registry
+                    .parse(format_id, decrypted.as_bytes())?;
+                Ok(DecryptOutcome {
+                    entries,
+                    version_status: VersionStatus::Known { version },
+                })
+            }
+            DetectedVersion::Unknown(sentinel) => {
+                // Lenient path: skip the version-keyed marker check (we don't
+                // know which line index this version puts `next_table` on)
+                // and let the lenient parser detect the boundary itself.
+                let (entries, report) =
+                    self.lenient_parser.parse(&sentinel, decrypted.as_bytes())?;
+                Ok(DecryptOutcome {
+                    entries,
+                    version_status: VersionStatus::BestEffort { report },
+                })
+            }
+        }
     }
 }
 

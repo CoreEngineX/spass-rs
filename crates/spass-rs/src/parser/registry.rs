@@ -94,9 +94,9 @@ impl ParserRegistry {
     ///
     /// The production pipeline does NOT use auto-detection -- it
     /// resolves the format from line 1 of the decrypted payload via
-    /// [`crate::format::SpassFormatVersion::detect`]. This method is
-    /// exposed for tooling that wants to recognise raw data outside
-    /// the encrypted pipeline.
+    /// the internal version-sentinel detector. This method is exposed
+    /// for tooling that wants to recognise raw data outside the
+    /// encrypted pipeline.
     #[must_use]
     pub fn auto_detect(&self, data: &[u8]) -> Option<FormatId> {
         self.parsers

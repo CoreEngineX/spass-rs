@@ -22,9 +22,9 @@
 //!
 //! let pipeline = DecryptionPipeline::new(spass::crypto::PBKDF2_ITERATIONS);
 //! let password = EntryPassword::new("my_password".to_string());
-//! let collection = pipeline.decrypt_file("passwords.spass", &password)?;
+//! let outcome = pipeline.decrypt_file("passwords.spass", &password)?;
 //!
-//! println!("Decrypted {} entries", collection.len());
+//! println!("Decrypted {} entries", outcome.entries.len());
 //! # Ok::<(), spass::SpassError>(())
 //! ```
 
@@ -35,7 +35,7 @@ pub mod format;
 pub mod parser;
 pub mod pipeline;
 
-pub use domain::{SpassError, SpassResult};
+pub use domain::{BestEffortReport, DecryptOutcome, SpassError, SpassResult, VersionStatus};
 
 #[cfg(any(test, feature = "generate-fixtures"))]
 pub mod testkit;

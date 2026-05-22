@@ -39,6 +39,11 @@ generate-fixtures = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+# Self-dep enables `generate-fixtures` for integration tests in `tests/`
+# without forcing every dev invocation to pass `--all-features`. ci-check.sh
+# already runs `cargo test --all-features` so this is purely an ergonomic
+# patch for `cargo test -p spass --test ...` invocations.
+spass = { path = ".", features = ["export-json", "generate-fixtures"] }
 
 [[bench]]
 name = "decrypt_bench"

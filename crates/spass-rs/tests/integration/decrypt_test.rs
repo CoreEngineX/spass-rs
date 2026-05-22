@@ -20,12 +20,12 @@ fn test_decrypt_real_spass_file() {
     let result = pipeline.decrypt_file(fixture_path, &password);
 
     // This will fail if password is wrong, which is expected for ignored test
-    if let Ok(collection) = result {
+    if let Ok(outcome) = result {
         assert!(
-            !collection.is_empty(),
+            !outcome.entries.is_empty(),
             "Expected at least one password entry"
         );
-        println!("Successfully decrypted {} entries", collection.len());
+        println!("Successfully decrypted {} entries", outcome.entries.len());
     }
 }
 

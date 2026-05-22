@@ -6,6 +6,11 @@
 //! (`url`, `username`, `password`, `name`, `note`). We still validate the row
 //! width (so format drift is loud) but only Base64-decode the 5 columns we
 //! project to `PasswordEntry`. The other 30 are skipped.
+//!
+//! [`decode_v31_cell`] is the per-cell primitive (Base64 + `&&&NULL&&&`
+//! mapping + UTF-8 validate). Both the strict v31 parser (hardcoded indices)
+//! and the lenient parser at `parser/lenient.rs` (name-resolved indices) use
+//! it so the wire-decoding rules don't drift between them.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
@@ -27,6 +32,37 @@ const COL_USERNAME_VALUE: usize = 4;
 const COL_PASSWORD_VALUE: usize = 7;
 const COL_TITLE: usize = 17;
 const COL_CREDENTIAL_MEMO: usize = 31;
+
+/// Decode one v31 wire cell. Empty input and the absent-sentinel both
+/// collapse to the empty string; anything else is Base64-decoded and
+/// UTF-8-validated.
+///
+/// `row_idx` and `col_idx` are 0-based and only used for error messages.
+pub(crate) fn decode_v31_cell(
+    field_str: &str,
+    row_idx: usize,
+    col_idx: usize,
+) -> SpassResult<String> {
+    if field_str.is_empty() {
+        return Ok(String::new());
+    }
+
+    let decoded = BASE64.decode(field_str).map_err(|e| {
+        SpassError::Parsing(format!(
+            "v31 row {row_idx}: column {col_idx} Base64 decode failed: {e}"
+        ))
+    })?;
+
+    if decoded.as_slice() == ABSENT_SENTINEL {
+        return Ok(String::new());
+    }
+
+    String::from_utf8(decoded).map_err(|_| {
+        SpassError::Parsing(format!(
+            "v31 row {row_idx}: column {col_idx} bytes are not valid UTF-8"
+        ))
+    })
+}
 
 /// Decoded view of one v31 row, projected to the 5 fields we keep.
 #[derive(Debug, Default)]
@@ -54,7 +90,6 @@ pub(crate) fn tokenize_row(line: &str, row_idx: usize) -> SpassResult<V31Row> {
         }
         count = i + 1;
 
-        // Skip the 30 columns we don't keep.
         let target = match i {
             COL_ORIGIN_URL => &mut row.origin_url,
             COL_USERNAME_VALUE => &mut row.username_value,
@@ -64,26 +99,7 @@ pub(crate) fn tokenize_row(line: &str, row_idx: usize) -> SpassResult<V31Row> {
             _ => continue,
         };
 
-        if field_str.is_empty() {
-            // Empty wire field -> empty string. Already initialised.
-            continue;
-        }
-
-        let decoded = BASE64.decode(field_str).map_err(|e| {
-            SpassError::Parsing(format!(
-                "v31 row {row_idx}: column {i} Base64 decode failed: {e}"
-            ))
-        })?;
-
-        if decoded.as_slice() == ABSENT_SENTINEL {
-            continue;
-        }
-
-        *target = String::from_utf8(decoded).map_err(|_| {
-            SpassError::Parsing(format!(
-                "v31 row {row_idx}: column {i} bytes are not valid UTF-8"
-            ))
-        })?;
+        *target = decode_v31_cell(field_str, row_idx, i)?;
     }
 
     if count != V31_COLUMN_COUNT {
@@ -95,17 +111,39 @@ pub(crate) fn tokenize_row(line: &str, row_idx: usize) -> SpassResult<V31Row> {
     Ok(row)
 }
 
-/// Parse the lines after the v31 `next_table` marker into the header line and
-/// the data section.
+/// Splits plaintext at the first `next_table` marker. Returns `(header,
+/// data_lines)` with no validation of the header shape -- callers
+/// (strict v31 and the lenient parser) impose their own checks.
 ///
-/// Returns `(header_line, data_lines)`. The header is validated to be 35
-/// semicolon-separated `_id;origin_url;...` columns; if it isn't, returns a
-/// `Parsing` error.
+/// The iterator stops at the next `next_table` marker (Samsung writes
+/// additional tables, e.g. secure notes, after the credentials block).
+pub(crate) fn split_v31_sections_unchecked(
+    plaintext: &str,
+) -> SpassResult<(&str, impl Iterator<Item = &str>)> {
+    let after_marker = plaintext
+        .split_once("next_table")
+        .map(|(_, rest)| rest)
+        .ok_or_else(|| {
+            SpassError::Parsing("v31 plaintext missing 'next_table' marker".to_string())
+        })?;
+
+    let mut lines = after_marker.trim_start_matches(['\r', '\n']).lines();
+    let header = lines
+        .next()
+        .ok_or_else(|| SpassError::Parsing("v31 plaintext missing header line".to_string()))?;
+
+    let data_lines = lines.take_while(|line| line.trim() != "next_table");
+
+    Ok((header, data_lines))
+}
+
+/// Same as [`split_v31_sections_unchecked`] plus the strict-v31 header shape
+/// checks: exactly 35 semicolon-separated columns, must start with
+/// `_id;origin_url;`. Used by [`super::csv::SpassCsvV31Parser`].
 ///
-/// Samsung's plaintext uses `next_table` as a section separator -- after the
-/// credentials table there are other tables (secure notes, security questions,
-/// etc.) we don't yet parse. The returned iterator stops at the next
-/// `next_table` line so callers don't accidentally tokenise it as a row.
+/// The boundary work is duplicated rather than delegated because each
+/// function's `impl Iterator` is its own opaque type -- can't propagate one
+/// through another without naming the concrete type.
 pub(crate) fn split_v31_sections(
     plaintext: &str,
 ) -> SpassResult<(&str, impl Iterator<Item = &str>)> {

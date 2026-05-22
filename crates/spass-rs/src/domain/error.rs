@@ -1,5 +1,7 @@
 use std::fmt;
 
+use super::version_status::BestEffortReport;
+
 /// Result type alias for spass operations.
 pub type SpassResult<T> = Result<T, SpassError>;
 
@@ -22,6 +24,14 @@ pub enum SpassError {
     /// The message is intentionally vague — distinguishing wrong password from
     /// corrupted data leaks information useful for padding oracle attacks.
     Decryption(String),
+    /// File's version sentinel was unrecognised AND the lenient parser
+    /// couldn't resolve all 5 required columns by name -- so we have nothing
+    /// usable to hand the caller. The report carries the header metadata so
+    /// the consumer can still build a contribution URL for the user.
+    ///
+    /// Boxed so the `Err` arm of `SpassResult` stays small in the common
+    /// (success) case -- the report is ~128 bytes.
+    UnknownVersionUnparseable(Box<BestEffortReport>),
 }
 
 impl fmt::Display for SpassError {
@@ -33,6 +43,12 @@ impl fmt::Display for SpassError {
             Self::Config(err) => write!(f, "Configuration error: {err}"),
             Self::Csv(err) => write!(f, "CSV error: {err}"),
             Self::Decryption(err) => write!(f, "Decryption error: {err}"),
+            Self::UnknownVersionUnparseable(report) => write!(
+                f,
+                "Unknown .spass version \"{}\"; missing required column(s): {}",
+                report.sentinel,
+                report.missing_required_columns.join(", ")
+            ),
         }
     }
 }

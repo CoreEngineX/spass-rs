@@ -108,6 +108,21 @@ pub struct SpassGenerator {
     /// Plaintext format version to emit. Defaults to v30 so existing callers
     /// don't need to touch their code; flip to v31 with `.with_version()`.
     version: crate::format::SpassFormatVersion,
+    /// Overrides line 1 of the plaintext for v31-shape generation. When set,
+    /// the wire shape is still v31 (35 columns, Base64, semicolons) but the
+    /// sentinel is whatever was passed -- useful for exercising the lenient
+    /// fallback parser on a synthetic "v32" file. v30 emission ignores this.
+    sentinel_override: Option<String>,
+    /// Overrides the v31 header column list. When set, the emitted file's
+    /// header is exactly the strings in this list (semicolon-joined) and
+    /// value emission writes each entry's `url` / `username` / `password` /
+    /// `name` / `note` at whichever positions hold the canonical names
+    /// (`origin_url`, `username_value`, `password_value`, `title`,
+    /// `credential_memo`) in this list. Names absent from the list cause
+    /// their corresponding entry field to be dropped. v30 emission ignores
+    /// this. Use to build "missing required column" or "reordered" or
+    /// "extra columns" fixtures for the lenient parser.
+    v31_header_override: Option<Vec<&'static str>>,
 }
 
 impl SpassGenerator {
@@ -121,6 +136,8 @@ impl SpassGenerator {
             salt: None,
             iv: None,
             version: crate::format::SpassFormatVersion::V30,
+            sentinel_override: None,
+            v31_header_override: None,
         }
     }
 
@@ -128,6 +145,26 @@ impl SpassGenerator {
     #[must_use]
     pub fn with_version(mut self, version: crate::format::SpassFormatVersion) -> Self {
         self.version = version;
+        self
+    }
+
+    /// Overrides the line-1 version sentinel for v31-shape generation.
+    /// Useful to build a "v32"-style file that the strict parser won't
+    /// recognise so tests can drive the lenient fallback path.
+    #[must_use]
+    pub fn with_sentinel(mut self, sentinel: impl Into<String>) -> Self {
+        self.sentinel_override = Some(sentinel.into());
+        self
+    }
+
+    /// Overrides the v31 header column list. The emitted file's header is
+    /// exactly `columns` (semicolon-joined); per-entry values are written
+    /// at whichever positions hold the canonical names. Use to build
+    /// "missing required column", "reordered", or "extra columns"
+    /// fixtures for the lenient parser.
+    #[must_use]
+    pub fn with_v31_header(mut self, columns: Vec<&'static str>) -> Self {
+        self.v31_header_override = Some(columns);
         self
     }
 
@@ -225,15 +262,9 @@ impl SpassGenerator {
     fn build_plaintext_v31(&self) -> String {
         use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
-        const COL_ORIGIN_URL: usize = 1;
-        const COL_USERNAME_VALUE: usize = 4;
-        const COL_PASSWORD_VALUE: usize = 7;
-        const COL_TITLE: usize = 17;
-        const COL_CREDENTIAL_MEMO: usize = 31;
         const ABSENT_SENTINEL_B64: &str = "JiYmTlVMTCYmJg=="; // Base64("&&&NULL&&&")
 
-        // 35-column header in canonical order.
-        let header_cols: [&str; 35] = [
+        let canonical_header: [&str; 35] = [
             "_id",
             "origin_url",
             "action_url",
@@ -271,38 +302,111 @@ impl SpassGenerator {
             "parent_id",
         ];
 
+        let header_cols: Vec<&str> = match self.v31_header_override.as_ref() {
+            Some(cols) => cols.clone(),
+            None => canonical_header.to_vec(),
+        };
+
+        // Position lookup. Each canonical name maps to its index in the
+        // emitted header, OR None when override drops the column.
+        let idx_id = header_cols.iter().position(|c| *c == "_id");
+        let idx_origin_url = header_cols.iter().position(|c| *c == "origin_url");
+        let idx_username_value = header_cols.iter().position(|c| *c == "username_value");
+        let idx_password_value = header_cols.iter().position(|c| *c == "password_value");
+        let idx_title = header_cols.iter().position(|c| *c == "title");
+        let idx_credential_memo = header_cols.iter().position(|c| *c == "credential_memo");
+
         let mut out = String::new();
-        // Line 1: version sentinel.
-        out.push_str("31\n");
+        // Line 1: version sentinel. `with_sentinel(...)` overrides to drive
+        // the lenient fallback in tests.
+        let sentinel = self.sentinel_override.as_deref().unwrap_or("31");
+        out.push_str(sentinel);
+        out.push('\n');
         // Line 2: 4-bool metadata flags.
         out.push_str("true;false;false;false\n");
         // Line 3: extra metadata bool (new in v31).
         out.push_str("false\n");
         // Line 4: section separator.
         out.push_str("next_table\n");
-        // Line 5: 35-column header.
+        // Line 5: header.
         out.push_str(&header_cols.join(";"));
         out.push('\n');
-        // Lines 6+: data rows.
-        for (idx, entry) in self.entries.iter().enumerate() {
-            let mut parts: Vec<String> = (0..35).map(|_| String::new()).collect();
-            // _id is just the row's 1-based index encoded as Base64.
-            parts[0] = BASE64.encode((idx + 1).to_string().as_bytes());
-            parts[COL_ORIGIN_URL] = BASE64.encode(entry.url.as_bytes());
-            parts[COL_USERNAME_VALUE] = BASE64.encode(entry.username.as_bytes());
-            parts[COL_PASSWORD_VALUE] = BASE64.encode(entry.password.as_bytes());
-            parts[COL_TITLE] = BASE64.encode(entry.name.as_bytes());
-            // Empty-note round-trips as the absent sentinel so v31 fixtures
-            // exercise the same path Samsung's exports do.
-            parts[COL_CREDENTIAL_MEMO] = if entry.note.is_empty() {
-                ABSENT_SENTINEL_B64.to_string()
-            } else {
-                BASE64.encode(entry.note.as_bytes())
-            };
+
+        let n = header_cols.len();
+        for (row_idx, entry) in self.entries.iter().enumerate() {
+            let mut parts: Vec<String> = (0..n).map(|_| String::new()).collect();
+            if let Some(i) = idx_id {
+                parts[i] = BASE64.encode((row_idx + 1).to_string().as_bytes());
+            }
+            if let Some(i) = idx_origin_url {
+                parts[i] = BASE64.encode(entry.url.as_bytes());
+            }
+            if let Some(i) = idx_username_value {
+                parts[i] = BASE64.encode(entry.username.as_bytes());
+            }
+            if let Some(i) = idx_password_value {
+                parts[i] = BASE64.encode(entry.password.as_bytes());
+            }
+            if let Some(i) = idx_title {
+                parts[i] = BASE64.encode(entry.name.as_bytes());
+            }
+            if let Some(i) = idx_credential_memo {
+                // Empty-note round-trips as the absent sentinel so v31
+                // fixtures exercise the same path Samsung's exports do.
+                parts[i] = if entry.note.is_empty() {
+                    ABSENT_SENTINEL_B64.to_string()
+                } else {
+                    BASE64.encode(entry.note.as_bytes())
+                };
+            }
             out.push_str(&parts.join(";"));
             out.push('\n');
         }
         out
+    }
+
+    /// Canonical 35-column v31 header in the order Samsung emits. Exposed
+    /// so tests can build "extra columns" / "reordered" variants against
+    /// the real shape.
+    #[must_use]
+    pub fn canonical_v31_header() -> Vec<&'static str> {
+        vec![
+            "_id",
+            "origin_url",
+            "action_url",
+            "username_element",
+            "username_value",
+            "id_tz_enc",
+            "password_element",
+            "password_value",
+            "pw_tz_enc",
+            "host_url",
+            "ssl_valid",
+            "preferred",
+            "blacklisted_by_user",
+            "use_additional_auth",
+            "cm_api_support",
+            "created_time",
+            "modified_time",
+            "title",
+            "favicon",
+            "source_type",
+            "app_name",
+            "package_name",
+            "package_signature",
+            "reserved_1",
+            "reserved_2",
+            "reserved_3",
+            "reserved_4",
+            "reserved_5",
+            "reserved_6",
+            "reserved_7",
+            "reserved_8",
+            "credential_memo",
+            "otp",
+            "root_id",
+            "parent_id",
+        ]
     }
 
     fn encrypt_with_iterations(
@@ -404,6 +508,8 @@ mod tests {
     /// path works on any machine.
     const FIXTURE_DIR_V30: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../gen-test/v30");
     const FIXTURE_DIR_V31: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../gen-test/v31");
+    const FIXTURE_DIR_BESTEFFORT: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../gen-test/besteffort");
 
     // The 1M-entry stress fixtures (~100-200 MB each) live alongside the
     // small fixtures under `gen-test/{v30,v31}/test05-1m.spass`. They are
@@ -822,6 +928,75 @@ mod tests {
         }
 
         println!("\nPassword for all v31 fixtures: {FIXTURE_PASSWORD}");
+    }
+
+    /// Generates a synthetic `.spass` fixture with line-1 sentinel `"32"`
+    /// at `spass-core/gen-test/besteffort/synthetic-v32.spass`. The wire
+    /// shape is canonical v31 (35 columns, Base64, semicolons) so the
+    /// lenient parser's name-keyed lookup finds all 5 required columns.
+    /// Used by the besteffort integration tests to confirm the pipeline
+    /// routes unknown sentinels through the BestEffort path without
+    /// regression on a real file-on-disk.
+    ///
+    /// Run with:
+    ///   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
+    #[test]
+    #[ignore]
+    fn generate_besteffort_fixture() {
+        use crate::format::SpassFormatVersion;
+
+        std::fs::create_dir_all(FIXTURE_DIR_BESTEFFORT).unwrap();
+
+        // Five real-looking entries -- enough to verify the loop, small
+        // enough to keep the committed fixture trivial.
+        let entries = vec![
+            TestEntry::new(
+                "https://accounts.google.com",
+                "alex.morgan@gmail.com",
+                "G00gleP@ss!2026",
+                "Google",
+                "Personal",
+            ),
+            TestEntry::new(
+                "https://github.com",
+                "alexmorgan",
+                "gh_pat_v32_abc123",
+                "GitHub",
+                "",
+            ),
+            TestEntry::new(
+                "https://netflix.com",
+                "alex.morgan@gmail.com",
+                "Netfl1x!Stream",
+                "Netflix",
+                "Family plan",
+            ),
+            TestEntry::new(
+                "android://com.samsung.android.app.samsungpay",
+                "alex.morgan@gmail.com",
+                "SPayP@ss9!",
+                "Samsung Pay",
+                "",
+            ),
+            TestEntry::new(
+                "https://apple.com",
+                "alex.morgan@icloud.com",
+                "AppleID_Secure!",
+                "Apple ID",
+                "",
+            ),
+        ];
+
+        let path = format!("{FIXTURE_DIR_BESTEFFORT}/synthetic-v32.spass");
+        SpassGenerator::new(FIXTURE_PASSWORD)
+            .with_version(SpassFormatVersion::V31)
+            .with_sentinel("32")
+            .entries(entries)
+            .write_to_file(&path);
+
+        let size_kb = std::fs::metadata(&path).unwrap().len() as f64 / 1024.0;
+        println!("wrote besteffort/synthetic-v32.spass (5 entries, {size_kb:.1} KB)");
+        println!("File password: {FIXTURE_PASSWORD}");
     }
 
     /// Generates a 1 000 000-entry v30 `.spass` fixture at
@@ -1283,6 +1458,8 @@ mod tests {
             salt: Some([0x01; 20]),
             iv: Some([0x02; 16]),
             version: crate::format::SpassFormatVersion::V30,
+            sentinel_override: None,
+            v31_header_override: None,
         }
     }
 
@@ -1316,10 +1493,10 @@ mod tests {
 
         let content = generate_low_iter(&gen);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let collection = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
-        assert_eq!(collection.len(), 1);
-        let entry = &collection.entries()[0];
+        assert_eq!(outcome.entries.len(), 1);
+        let entry = &outcome.entries.entries()[0];
         assert_eq!(entry.url.as_str(), "https://example.com");
         assert_eq!(entry.username.as_str(), "user@example.com");
         assert_eq!(entry.password.as_str(), "secret");
@@ -1342,10 +1519,10 @@ mod tests {
 
         let content = generate_low_iter(&gen);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let collection = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
-        assert_eq!(collection.len(), 3);
-        assert_eq!(collection.entries()[1].username.as_str(), "bob");
+        assert_eq!(outcome.entries.len(), 3);
+        assert_eq!(outcome.entries.entries()[1].username.as_str(), "bob");
     }
 
     #[test]
@@ -1368,12 +1545,119 @@ mod tests {
 
         let content = generate_low_iter(&gen);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let collection = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
         assert_eq!(
-            collection.entries()[0].password.as_str(),
+            outcome.entries.entries()[0].password.as_str(),
             "pass,with,commas"
         );
-        assert_eq!(collection.entries()[0].name.as_str(), "Site, Inc.");
+        assert_eq!(outcome.entries.entries()[0].name.as_str(), "Site, Inc.");
+    }
+
+    #[test]
+    fn v30_round_trip_reports_known_v30_status() {
+        use crate::domain::VersionStatus;
+        use crate::format::SpassFormatVersion;
+
+        let gen = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
+        let content = generate_low_iter(&gen);
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+
+        match outcome.version_status {
+            VersionStatus::Known { version } => assert_eq!(version, SpassFormatVersion::V30),
+            VersionStatus::BestEffort { report } => {
+                panic!(
+                    "expected Known(V30), got BestEffort {{ {} }}",
+                    report.sentinel
+                )
+            }
+        }
+    }
+
+    #[test]
+    fn v31_round_trip_reports_known_v31_status() {
+        use crate::domain::VersionStatus;
+        use crate::format::SpassFormatVersion;
+
+        let gen = generator()
+            .with_version(crate::format::SpassFormatVersion::V31)
+            .entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
+        let content = generate_low_iter(&gen);
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+
+        assert_eq!(outcome.entries.len(), 1);
+        match outcome.version_status {
+            VersionStatus::Known { version } => assert_eq!(version, SpassFormatVersion::V31),
+            VersionStatus::BestEffort { report } => {
+                panic!(
+                    "expected Known(V31), got BestEffort {{ {} }}",
+                    report.sentinel
+                )
+            }
+        }
+    }
+
+    #[test]
+    fn strict_v31_failure_does_not_fall_back_to_lenient() {
+        use crate::domain::SpassError;
+
+        // Empty entries -> strict v31 parser errors with "No password entries
+        // found in CSV file". The pipeline must propagate that error rather
+        // than silently routing to the lenient parser.
+        let gen = generator().with_version(crate::format::SpassFormatVersion::V31);
+        let content = generate_low_iter(&gen);
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        let err = pipeline().decrypt_string(&content, &pw).unwrap_err();
+
+        match err {
+            SpassError::UnknownVersionUnparseable(_) => {
+                panic!("strict v31 failure must not fall back to lenient")
+            }
+            // Any other error variant is acceptable; the load-bearing check
+            // is the absence of the silent fallback above.
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn synthetic_v32_routes_through_best_effort() {
+        use crate::domain::VersionStatus;
+        use crate::format::SpassFormatVersion;
+
+        // v31 wire shape + an unknown sentinel "32" -> pipeline should detect
+        // unknown, dispatch to the lenient parser, and surface BestEffort.
+        let gen = generator()
+            .with_version(SpassFormatVersion::V31)
+            .with_sentinel("32")
+            .entry(TestEntry::new(
+                "https://example.com",
+                "alice",
+                "secret",
+                "Example",
+                "note",
+            ));
+        let content = generate_low_iter(&gen);
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+
+        assert_eq!(outcome.entries.len(), 1);
+        let e = &outcome.entries.entries()[0];
+        assert_eq!(e.url.as_str(), "https://example.com");
+        assert_eq!(e.password.as_str(), "secret");
+
+        match outcome.version_status {
+            VersionStatus::BestEffort { report } => {
+                assert_eq!(report.sentinel, "32");
+                assert!(report.missing_required_columns.is_empty());
+                assert_eq!(report.entries_extracted, 1);
+                // canonical v31 header has all 5 required columns
+                assert_eq!(report.recognized_columns.len(), 5);
+            }
+            VersionStatus::Known { version } => {
+                panic!("expected BestEffort, got Known({version:?})")
+            }
+        }
     }
 }

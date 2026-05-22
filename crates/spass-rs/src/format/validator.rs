@@ -36,8 +36,8 @@ impl FormatValidator {
     /// Checks that the version-specific marker line is exactly
     /// `next_table`. v30 expects the marker on line 3 (index 2); v31
     /// inserts an extra metadata line and expects it on line 4
-    /// (index 3). The version is passed in by the pipeline after
-    /// [`crate::format::SpassFormatVersion::detect`] reads line 1.
+    /// (index 3). The version is passed in by the pipeline after the
+    /// internal version-sentinel detector reads line 1.
     ///
     /// # Errors
     ///

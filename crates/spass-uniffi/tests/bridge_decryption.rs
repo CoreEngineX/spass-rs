@@ -65,16 +65,18 @@ fn field<'a>(entry: &'a Value, key: &str) -> &'a str {
 #[test]
 fn decrypts_one_entry_fixture() {
     let spass = fixture_with_n_entries(1, TEST_PASSWORD);
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("a 1-entry fixture should round-trip");
-    let entries = parse_entries(&json);
+    let outcome =
+        decrypt(spass, TEST_PASSWORD.into()).expect("a 1-entry fixture should round-trip");
+    let entries = parse_entries(&outcome.entries_json);
     assert_eq!(entries.len(), 1);
 }
 
 #[test]
 fn decrypts_multi_entry_fixture() {
     let spass = fixture_with_n_entries(8, TEST_PASSWORD);
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("an 8-entry fixture should round-trip");
-    let entries = parse_entries(&json);
+    let outcome =
+        decrypt(spass, TEST_PASSWORD.into()).expect("an 8-entry fixture should round-trip");
+    let entries = parse_entries(&outcome.entries_json);
     assert_eq!(entries.len(), 8);
 }
 
@@ -89,8 +91,8 @@ fn entry_fields_round_trip() {
             "Test note",
         ))
         .generate();
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
-    let entries = parse_entries(&json);
+    let outcome = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
+    let entries = parse_entries(&outcome.entries_json);
     let entry = entries.first().expect("at least one entry");
     assert_eq!(field(entry, "url"), "https://example.com");
     assert_eq!(field(entry, "username"), "alice@example.com");
@@ -124,8 +126,8 @@ fn decrypts_v31_fixture() {
     // Base64-encoded values, &&&NULL&&& sentinel) but the bridge surface is
     // unchanged: same JSON-array shape, same fields per entry.
     let spass = v31_fixture_with_n_entries(5, TEST_PASSWORD);
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("v31 fixture should round-trip");
-    let entries = parse_entries(&json);
+    let outcome = decrypt(spass, TEST_PASSWORD.into()).expect("v31 fixture should round-trip");
+    let entries = parse_entries(&outcome.entries_json);
     assert_eq!(entries.len(), 5);
     let first = entries.first().expect("at least one entry");
     assert_eq!(field(first, "url"), "https://example0.com");
@@ -150,8 +152,8 @@ fn v31_field_mapping_round_trips() {
             "Test note",
         ))
         .generate();
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
-    let entries = parse_entries(&json);
+    let outcome = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
+    let entries = parse_entries(&outcome.entries_json);
     let entry = entries.first().expect("at least one entry");
     assert_eq!(field(entry, "url"), "android://com.example/login");
     assert_eq!(field(entry, "username"), "alice@example.com");
@@ -173,8 +175,8 @@ fn special_characters_round_trip_through_json() {
             "Note with \"quotes\" and a tab\tcharacter",
         ))
         .generate();
-    let json = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
-    let entries = parse_entries(&json);
+    let outcome = decrypt(spass, TEST_PASSWORD.into()).expect("decrypt should succeed");
+    let entries = parse_entries(&outcome.entries_json);
     let entry = entries.first().expect("at least one entry");
     assert_eq!(field(entry, "url"), "https://example.com/path?q=\"quoted\"");
     assert_eq!(field(entry, "username"), "user\\with\\backslashes");

@@ -1,9 +1,21 @@
-## v0.1.0
+## v0.2.0
 
-Samsung Pass exports passwords only as encrypted `.spass` files that restore exclusively on other Samsung devices, making migration to any other password manager effectively impossible. `spass-core` solves that problem: given a `.spass` export and its unlock password, the library decrypts the payload and produces structured password entries that every major manager can import. It handles both known Samsung Pass export formats -- the `spass_export_v1` sentinel format (V3.0) and the numeric-sentinel, base64-encoded variant (V3.1) -- and detects the format automatically.
+**Introduced a best-effort fallback parser so files with unknown `.spass` version sentinels return partial results instead of hard-failing.**
 
-The decryption pipeline combines AES-256-CBC with PBKDF2-HMAC-SHA256 key derivation at 70,000 iterations, matching the parameters Samsung Pass uses in practice. All sensitive values -- derived keys, decrypted payloads, and password fields -- are zeroized on drop. Error messages from the decryption path are intentionally vague and a constant-time delay is applied on failure, closing off padding-oracle and timing side-channels. Hardware AES and SHA-2 acceleration is used automatically on native builds; the WebAssembly target falls back to pure-software implementations.
+### Added
 
-Export at v0.1.0 supports RFC 4180 CSV (compatible with Apple Passwords, Chrome, Bitwarden, Firefox, and most other managers) and pretty-printed JSON, each gated behind a Cargo feature flag so consumers can pull in only what they need. The parsed entries carry typed newtypes for each field (`Url`, `Username`, `EntryPassword`, `EntryName`, `Note`), an `EntryType` classifier (website, Android app, or other), and an `is_sensitive()` heuristic that flags financial and crypto-related entries.
+- **Best-effort fallback for unknown sentinels**: files whose line-1 sentinel is not `spass_export_v1` or `"31"` now route to a lenient parser over the v31 wire shape instead of failing. The lenient parser (`parser/lenient.rs`) resolves the five required columns by name rather than index, so reordered, inserted, or appended columns still parse. Missing required columns return `UnknownVersionUnparseable` with a diagnostic rather than a generic error.
+- **`BestEffortReport`**: a new type carrying column-name metadata only (never row data), surfaced to consumers so they can build a "help us add support" prompt with a GitHub issue URL or mailto link.
+- **CLI stderr guidance block**: on a `BestEffort` or unparseable outcome the CLI prints a formatted block to stderr that includes the GitHub issue URL; the user is never silently given a partial result.
+- **WASM `version_status` field**: WASM callers now receive `{ entries, version_status }` so the frontend can distinguish confirmed-known from lenient-parsed results.
+- **UniFFI `FfiBestEffortReport`**: the native binding surface exposes precomputed `subject`, `body`, and `url` fields targeting `support@coreenginex.com`, ready to wire into an email or issue-creation flow without string assembly on the Swift/Kotlin side.
 
-The workspace ships four crates built on a single core: `spass-rs` (the published Rust library), `spass-cli` (an interactive command-line converter), `spass-uniffi` (a UniFFI static library with generated Swift bindings for iOS, macOS, and visionOS), and `spass-wasm` (a `wasm-bindgen` WebAssembly module for browser use). All domain logic, cryptography, parsing, and export live once in `spass-rs`; the boundary crates translate only at their respective I/O edges.
+### Changed
+
+- **`DecryptOutcome` replaces `PasswordEntryCollection` as the pipeline return type**: the pipeline now returns `DecryptOutcome { entries, version_status }`. Callers that previously destructured the bare collection must be updated. Strict-parser failures on known sentinels continue to propagate unchanged -- the lenient path activates only for genuinely unrecognised sentinels, so no previously-hard-failing path silently becomes a success.
+
+### Internal
+
+- **testkit helpers**: `with_sentinel` and `with_v31_header` added to the testkit so integration tests can construct synthetic future-version fixtures without touching real Samsung exports.
+- **Synthetic v32 fixture committed**: `gen-test/besteffort/synthetic-v32.spass` is now tracked in the repository and will catch encryption-contract drift if a future change breaks the format assumptions the lenient parser depends on.
+- **26 new integration tests**: cover sentinel variations, column reorderings, insertions, appends, missing-column failure paths, unicode and long-value payloads, and pipeline interactions including wrong-password and zero-entry edge cases.

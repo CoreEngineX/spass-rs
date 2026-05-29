@@ -188,7 +188,7 @@ fn besteffort_fixture_report_helpers_produce_contribution_urls() {
 
     let subject = report.subject();
     assert!(subject.contains("32"));
-    assert!(subject.contains("SPASSPort"));
+    assert!(subject.contains("SPassPort"));
 
     let body = report.body();
     assert!(body.contains("Sentinel: 32"));

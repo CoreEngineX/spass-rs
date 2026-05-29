@@ -1174,7 +1174,7 @@ mod tests {
     }
 
     /// Generates a 30-entry v30 `.spass` fixture at
-    /// `spass-core/gen-test/v30/demo.spass`. Used for the SPASSPort product
+    /// `spass-core/gen-test/v30/demo.spass`. Used for the SPassPort product
     /// page screenshots, App Store screenshots, and demo videos. Every URL
     /// maps to a brand the iOS app has a bundled favicon for, so every row
     /// renders with a real-looking icon instead of the first-letter-circle

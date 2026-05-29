@@ -53,12 +53,12 @@ impl BestEffortReport {
     pub fn subject(&self) -> String {
         if self.missing_required_columns.is_empty() {
             format!(
-                "[SPASSPort] Unknown .spass version \"{}\" - help add support",
+                "[SPassPort] Unknown .spass version \"{}\" - help add support",
                 self.sentinel
             )
         } else {
             format!(
-                "[SPASSPort] Can't parse .spass version \"{}\" - help add support",
+                "[SPassPort] Can't parse .spass version \"{}\" - help add support",
                 self.sentinel
             )
         }
@@ -301,7 +301,7 @@ mod tests {
         // "support@coreenginex.com" round-trips with @ percent-encoded.
         assert!(url.starts_with("mailto:support%40coreenginex.com"));
         // Spaces in the subject become %20, square brackets become %5B / %5D.
-        assert!(url.contains("%5BSPASSPort%5D"));
+        assert!(url.contains("%5BSPassPort%5D"));
         assert!(url.contains("%20"));
     }
 

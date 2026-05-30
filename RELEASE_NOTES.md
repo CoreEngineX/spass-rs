@@ -1,21 +1,9 @@
-## v0.2.0
+## v0.2.1
 
-**Introduced a best-effort fallback parser so files with unknown `.spass` version sentinels return partial results instead of hard-failing.**
-
-### Added
-
-- **Best-effort fallback for unknown sentinels**: files whose line-1 sentinel is not `spass_export_v1` or `"31"` now route to a lenient parser over the v31 wire shape instead of failing. The lenient parser (`parser/lenient.rs`) resolves the five required columns by name rather than index, so reordered, inserted, or appended columns still parse. Missing required columns return `UnknownVersionUnparseable` with a diagnostic rather than a generic error.
-- **`BestEffortReport`**: a new type carrying column-name metadata only (never row data), surfaced to consumers so they can build a "help us add support" prompt with a GitHub issue URL or mailto link.
-- **CLI stderr guidance block**: on a `BestEffort` or unparseable outcome the CLI prints a formatted block to stderr that includes the GitHub issue URL; the user is never silently given a partial result.
-- **WASM `version_status` field**: WASM callers now receive `{ entries, version_status }` so the frontend can distinguish confirmed-known from lenient-parsed results.
-- **UniFFI `FfiBestEffortReport`**: the native binding surface exposes precomputed `subject`, `body`, and `url` fields targeting `support@coreenginex.com`, ready to wire into an email or issue-creation flow without string assembly on the Swift/Kotlin side.
+**Corrects SPassPort brand casing in contribution-flow templates and fully documents the best-effort fallback API.**
 
 ### Changed
-
-- **`DecryptOutcome` replaces `PasswordEntryCollection` as the pipeline return type**: the pipeline now returns `DecryptOutcome { entries, version_status }`. Callers that previously destructured the bare collection must be updated. Strict-parser failures on known sentinels continue to propagate unchanged -- the lenient path activates only for genuinely unrecognised sentinels, so no previously-hard-failing path silently becomes a success.
+- **BestEffortReport subject casing**: `BestEffortReport.subject()` now emits `SPassPort` (camelCase) instead of `SPASSPort`, matching the rename already live in the iOS app and web. Consumers that embed this string in mailto links or GitHub issue URLs will see the updated casing once `SpassFFI.xcframework` is rebuilt from this core version; the web layer generates its own subject in JS and is unaffected without a WASM rebuild.
 
 ### Internal
-
-- **testkit helpers**: `with_sentinel` and `with_v31_header` added to the testkit so integration tests can construct synthetic future-version fixtures without touching real Samsung exports.
-- **Synthetic v32 fixture committed**: `gen-test/besteffort/synthetic-v32.spass` is now tracked in the repository and will catch encryption-contract drift if a future change breaks the format assumptions the lenient parser depends on.
-- **26 new integration tests**: cover sentinel variations, column reorderings, insertions, appends, missing-column failure paths, unicode and long-value payloads, and pipeline interactions including wrong-password and zero-entry edge cases.
+- **README and docs rewrite for DecryptOutcome / VersionStatus**: Rewrote the Features, Quick Start, FFI, WASM, and Version Support sections to cover the lenient parser path -- schema-driven column resolution, the `BestEffortReport` contribution loop, and header-only diagnostics. Added examples showing how `FfiDecryptOutcome` and the WASM JSON shape expose the same report so Swift and JS consumers can render contribution prompts without reimplementing the message format. Refreshed `crates/spass-rs/README` to reflect the current public API surface.

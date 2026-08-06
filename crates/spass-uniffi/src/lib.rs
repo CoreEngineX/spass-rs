@@ -26,7 +26,7 @@ uniffi::setup_scaffolding!();
 /// side-channel safety baked into `spass::SpassError::Decryption`.
 ///
 /// `UnknownVersion` is the contribution-loop variant: when the file's
-/// version sentinel isn't recognised AND the lenient parser couldn't
+/// version sentinel isn't recognised AND the schema parser couldn't
 /// resolve all 5 required columns, the report rides along so the iOS
 /// consumer can show a Mail composer or a GitHub link without re-parsing
 /// anything.
@@ -49,7 +49,7 @@ pub enum SpassFfiError {
         message: String,
     },
 
-    /// File's version sentinel wasn't recognised and the lenient parser
+    /// File's version sentinel wasn't recognised and the schema parser
     /// couldn't extract entries either. The report carries column names
     /// from the file header (no row data) so the consumer can build a
     /// contribution URL.
@@ -108,14 +108,14 @@ pub struct FfiBestEffortReport {
     pub sentinel: String,
     /// Header line verbatim. Column names only.
     pub header_line: String,
-    /// Canonical column names the lenient parser matched.
+    /// Canonical column names the schema parser matched.
     pub recognized_columns: Vec<String>,
-    /// Canonical column names that were absent. Empty when the lenient
+    /// Canonical column names that were absent. Empty when the best-effort
     /// path succeeded; populated on `SpassFfiError::UnknownVersion`.
     pub missing_required_columns: Vec<String>,
     /// Header column names we didn't match against the canonical set.
     pub unknown_columns: Vec<String>,
-    /// Entries the lenient parser extracted. Zero on the failure path.
+    /// Entries extracted. Zero on the failure path.
     pub entries_extracted: u64,
     /// Pre-built subject line for the mail composer or GitHub issue.
     pub subject: String,
@@ -154,17 +154,17 @@ impl From<BestEffortReport> for FfiBestEffortReport {
     }
 }
 
-/// Whether the decrypt went through a strict known-version parser or the
-/// schema-driven lenient fallback. On the lenient path, the report rides
-/// along so Swift can show the contribution prompt.
+/// Whether the file's version sentinel was in the known-version table.
+/// On the best-effort path, the report rides along so Swift can show
+/// the contribution prompt.
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum FfiVersionStatus {
-    /// File was parsed by a strict, version-specific parser.
+    /// File's sentinel matched a known version.
     Known {
-        /// Which strict version was matched (`"V30"` or `"V31"`).
+        /// Which version was matched (`"V30"`, `"V31"`, or `"V32"`).
         version: String,
     },
-    /// File's sentinel was unrecognised; the lenient parser extracted what
+    /// File's sentinel was unrecognised; the schema parser extracted what
     /// it could.
     BestEffort {
         /// Diagnostic + entry count.
@@ -204,6 +204,7 @@ fn format_version_name(v: SpassFormatVersion) -> String {
     match v {
         SpassFormatVersion::V30 => "V30",
         SpassFormatVersion::V31 => "V31",
+        SpassFormatVersion::V32 => "V32",
         // SpassFormatVersion is `#[non_exhaustive]`. Future variants get a
         // stringified placeholder so the Swift side at least sees something.
         _ => "Unknown",

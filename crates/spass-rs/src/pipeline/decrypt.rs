@@ -7,9 +7,9 @@ use crate::crypto::{CipherEngine, CryptoValidator, KeyDerivation, PBKDF2_ITERATI
 use crate::domain::{DecryptOutcome, EntryPassword, SpassResult, VersionStatus};
 use crate::format::{
     CipherText, DetectedVersion, FormatValidator, InitializationVector, Salt, SpassDecoder,
-    SpassFormatVersion,
+    SpassFormatVersion, WireFamily,
 };
-use crate::parser::{FormatId, LenientV31Parser, ParserRegistry};
+use crate::parser::{FormatId, ParserRegistry, SchemaParser};
 
 /// Full decryption pipeline for `.spass` files.
 ///
@@ -18,10 +18,10 @@ use crate::parser::{FormatId, LenientV31Parser, ParserRegistry};
 /// 2. Validate ciphertext (salt and IV are validated by their types)
 /// 3. Derive AES-256 key via PBKDF2-HMAC-SHA256
 /// 4. Decrypt with AES-256-CBC
-/// 5. Validate the decrypted format (`next_table` marker, size)
-/// 6. Detect the version sentinel and dispatch to the strict parser for
-///    that version, or to the schema-driven lenient parser if the
-///    sentinel is unknown
+/// 5. Validate the decrypted size, then detect the version sentinel
+/// 6. Dispatch by wire family: v30 to its dedicated parser (after the
+///    pinned marker check), everything else -- v31, v32, and unknown
+///    sentinels -- to the default schema parser
 ///
 /// The pipeline returns a [`DecryptOutcome`] carrying the extracted entries
 /// plus a [`VersionStatus`]. Consumers inspect the status to render a
@@ -56,7 +56,7 @@ pub struct DecryptionPipeline {
     format_validator: FormatValidator,
     decoder: SpassDecoder,
     parser_registry: ParserRegistry,
-    lenient_parser: LenientV31Parser,
+    schema_parser: SchemaParser,
 }
 
 impl DecryptionPipeline {
@@ -77,7 +77,7 @@ impl DecryptionPipeline {
             format_validator: FormatValidator::new(),
             decoder: SpassDecoder::new(),
             parser_registry: ParserRegistry::new(),
-            lenient_parser: LenientV31Parser::new(),
+            schema_parser: SchemaParser::new(),
         }
     }
 
@@ -90,7 +90,7 @@ impl DecryptionPipeline {
     /// - `SpassError::Validation` — bad crypto parameters or format marker missing
     /// - `SpassError::Decryption` — wrong password or corrupted data
     /// - `SpassError::UnknownVersionUnparseable` — line-1 sentinel was
-    ///   unrecognised AND the lenient parser couldn't resolve all 5
+    ///   unrecognised AND the schema parser couldn't resolve all 5
     ///   required columns; the contained report carries the diagnostic
     ///
     /// # Examples
@@ -159,27 +159,33 @@ impl DecryptionPipeline {
 
         match detected {
             DetectedVersion::Known(version) => {
-                // Strict path: known version -> marker check then parser dispatch.
-                self.format_validator
-                    .validate_spass_marker(&decrypted, version)?;
-                let format_id = match version {
-                    SpassFormatVersion::V30 => FormatId::SpassCsvV30,
-                    SpassFormatVersion::V31 => FormatId::SpassCsvV31,
+                let entries = match version.wire_family() {
+                    WireFamily::V30Csv => {
+                        self.format_validator.validate_v30_marker(&decrypted)?;
+                        self.parser_registry
+                            .parse(FormatId::SpassCsvV30, decrypted.as_bytes())?
+                    }
+                    WireFamily::Schema35 => {
+                        // The report only matters when the sentinel is
+                        // unknown; on the known path the parse either
+                        // succeeds quietly or errors (a missing required
+                        // column still carries the report via
+                        // `UnknownVersionUnparseable`).
+                        let (entries, _report) = self
+                            .schema_parser
+                            .parse_with_report(version.sentinel_str(), decrypted.as_bytes())?;
+                        entries
+                    }
                 };
-                let entries = self
-                    .parser_registry
-                    .parse(format_id, decrypted.as_bytes())?;
                 Ok(DecryptOutcome {
                     entries,
                     version_status: VersionStatus::Known { version },
                 })
             }
             DetectedVersion::Unknown(sentinel) => {
-                // Lenient path: skip the version-keyed marker check (we don't
-                // know which line index this version puts `next_table` on)
-                // and let the lenient parser detect the boundary itself.
-                let (entries, report) =
-                    self.lenient_parser.parse(&sentinel, decrypted.as_bytes())?;
+                let (entries, report) = self
+                    .schema_parser
+                    .parse_with_report(&sentinel, decrypted.as_bytes())?;
                 Ok(DecryptOutcome {
                     entries,
                     version_status: VersionStatus::BestEffort { report },

@@ -5,10 +5,11 @@
 //! before any further parsing is what lets the pipeline dispatch to the right
 //! parser without heuristics.
 //!
-//! The pipeline runs detection once per file and branches:
+//! Versions map to a [`WireFamily`], and the family picks the parser:
 //!
-//! - `DetectedVersion::Known(v)` -> strict version-specific parser
-//! - `DetectedVersion::Unknown(sentinel)` -> schema-driven lenient parser
+//! - `WireFamily::V30Csv` -> the dedicated v30 parser
+//! - `WireFamily::Schema35` -> the default schema parser, which also serves
+//!   every *unknown* sentinel (`DetectedVersion::Unknown`)
 //!
 //! `DetectedVersion` is `pub(crate)` -- callers outside this crate get the
 //! "we don't know this version" signal through
@@ -19,9 +20,9 @@
 
 use crate::domain::{DecryptedData, SpassError, SpassResult};
 
-/// Samsung Pass plaintext layout this crate ships strict support for.
+/// Samsung Pass plaintext layout this crate recognises on line 1.
 ///
-/// `#[non_exhaustive]` so adding `V32` etc. in a future format bump is
+/// `#[non_exhaustive]` so adding `V33` etc. in a future format bump is
 /// purely additive at the workspace level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "export-json", derive(serde::Serialize))]
@@ -33,6 +34,23 @@ pub enum SpassFormatVersion {
     /// 35-column semicolon-delimited Base64-encoded CSV with `&&&NULL&&&`
     /// absent-value sentinel. First seen 2026-05.
     V31,
+    /// Sentinel `"32"`, layout byte-identical to V31 -- confirmed against a
+    /// complete real export (preamble, header, row widths, table
+    /// boundaries). First seen 2026-08.
+    V32,
+}
+
+/// Which parser a version routes to. A future same-layout version extends
+/// the sentinel match in [`SpassFormatVersion::detect`] and the arm in
+/// [`SpassFormatVersion::wire_family`] -- no parser code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WireFamily {
+    /// Comma-delimited plaintext CSV with the `next_table` marker pinned to
+    /// line 3. v30 only.
+    V30Csv,
+    /// 35-column semicolon + Base64 family served by the default schema
+    /// parser: v31, v32, and every unknown sentinel.
+    Schema35,
 }
 
 /// Outcome of running [`SpassFormatVersion::detect`]. Internal dispatch
@@ -40,9 +58,9 @@ pub enum SpassFormatVersion {
 /// [`crate::domain::VersionStatus`].
 #[derive(Debug, Clone)]
 pub(crate) enum DetectedVersion {
-    /// Line-1 sentinel matched one of the strict parsers.
+    /// Line-1 sentinel matched a version in the table.
     Known(SpassFormatVersion),
-    /// Line-1 sentinel didn't match any strict parser. The captured string
+    /// Line-1 sentinel didn't match any known version. The captured string
     /// is preserved verbatim (post-trim) so the contribution loop names the
     /// real value the user has on disk.
     Unknown(String),
@@ -53,8 +71,8 @@ impl SpassFormatVersion {
     ///
     /// Hard-errors only when line 1 is empty or not valid UTF-8 (a missing
     /// sentinel is a malformed file, not a new format version). Any other
-    /// string -- including future Samsung sentinels like `"32"` -- returns
-    /// `DetectedVersion::Unknown(s)` so the lenient parser can have a go.
+    /// string -- including future Samsung sentinels like `"33"` -- returns
+    /// `DetectedVersion::Unknown(s)` so the schema parser can have a go.
     ///
     /// # Errors
     ///
@@ -74,6 +92,7 @@ impl SpassFormatVersion {
         match first_line {
             "spass_export_v1" => Ok(DetectedVersion::Known(Self::V30)),
             "31" => Ok(DetectedVersion::Known(Self::V31)),
+            "32" => Ok(DetectedVersion::Known(Self::V32)),
             "" => Err(SpassError::Validation(
                 "Format version missing on line 1".to_string(),
             )),
@@ -81,15 +100,22 @@ impl SpassFormatVersion {
         }
     }
 
-    /// 0-indexed line number where `next_table` is expected for this version.
-    ///
-    /// v30 puts the marker on line 3 (index 2); v31 inserts an extra metadata
-    /// line and pushes the marker to line 4 (index 3).
-    #[must_use]
-    pub(crate) fn marker_line(self) -> usize {
+    /// The parser family this version routes to.
+    pub(crate) fn wire_family(self) -> WireFamily {
         match self {
-            Self::V30 => 2,
-            Self::V31 => 3,
+            Self::V30 => WireFamily::V30Csv,
+            Self::V31 | Self::V32 => WireFamily::Schema35,
+        }
+    }
+
+    /// Line-1 sentinel as Samsung writes it. Flows into the schema parser's
+    /// report so error diagnostics name the real on-disk value even on the
+    /// known-version path.
+    pub(crate) fn sentinel_str(self) -> &'static str {
+        match self {
+            Self::V30 => "spass_export_v1",
+            Self::V31 => "31",
+            Self::V32 => "32",
         }
     }
 }
@@ -141,16 +167,22 @@ mod tests {
     }
 
     #[test]
+    fn detect_v32() {
+        let d = data("32\ntrue;false;false;false\nfalse\nnext_table\n");
+        assert_eq!(expect_known(&d), SpassFormatVersion::V32);
+    }
+
+    #[test]
     fn detect_unknown_version_returns_unknown_variant() {
-        let d = data("32\nfoo\n");
-        assert_eq!(expect_unknown(&d), "32");
+        let d = data("33\nfoo\n");
+        assert_eq!(expect_unknown(&d), "33");
     }
 
     #[test]
     fn detect_legacy_numeric_30_is_unknown_not_v30() {
         // Real v30 files write "spass_export_v1", not "30". A literal "30"
         // landing here means Samsung shipped a new format we haven't taught
-        // strict support for -- route through the lenient path.
+        // support for -- route through the schema parser as unknown.
         let d = data("30\nheader\nnext_table\n");
         assert_eq!(expect_unknown(&d), "30");
     }
@@ -169,8 +201,21 @@ mod tests {
     }
 
     #[test]
-    fn marker_line_indices() {
-        assert_eq!(SpassFormatVersion::V30.marker_line(), 2);
-        assert_eq!(SpassFormatVersion::V31.marker_line(), 3);
+    fn wire_families() {
+        assert_eq!(SpassFormatVersion::V30.wire_family(), WireFamily::V30Csv);
+        assert_eq!(SpassFormatVersion::V31.wire_family(), WireFamily::Schema35);
+        assert_eq!(SpassFormatVersion::V32.wire_family(), WireFamily::Schema35);
+    }
+
+    #[test]
+    fn sentinel_strings_round_trip_through_detect() {
+        for v in [
+            SpassFormatVersion::V30,
+            SpassFormatVersion::V31,
+            SpassFormatVersion::V32,
+        ] {
+            let d = data(&format!("{}\nrest\n", v.sentinel_str()));
+            assert_eq!(expect_known(&d), v);
+        }
     }
 }

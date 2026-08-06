@@ -3,7 +3,7 @@
 //! Two layers:
 //!
 //! 1. **Fixture-based tests** (lines below using `FIXTURE_PATH`) decrypt the
-//!    committed `gen-test/besteffort/synthetic-v32.spass` file. These catch
+//!    committed `gen-test/besteffort/synthetic-v33.spass` file. These catch
 //!    regressions where a future change subtly alters the encryption or
 //!    plaintext-shape contract -- a previously-emitted file no longer
 //!    parsing is a real-world break we want loud.
@@ -28,7 +28,7 @@ use spass::testkit::{SpassGenerator, TestEntry};
 
 const FIXTURE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../gen-test/besteffort/synthetic-v32.spass"
+    "/../../gen-test/besteffort/synthetic-v33.spass"
 );
 const TEST_PASSWORD: &str = "TestPassword123";
 
@@ -89,7 +89,7 @@ fn besteffort_fixture_decrypts_through_lenient_path() {
         _ => panic!("expected BestEffort, got an unknown VersionStatus variant"),
     };
 
-    assert_eq!(report.sentinel, "32");
+    assert_eq!(report.sentinel, "33");
     assert_eq!(report.entries_extracted, 5);
     assert!(
         report.missing_required_columns.is_empty(),
@@ -187,11 +187,11 @@ fn besteffort_fixture_report_helpers_produce_contribution_urls() {
     };
 
     let subject = report.subject();
-    assert!(subject.contains("32"));
+    assert!(subject.contains("33"));
     assert!(subject.contains("SPassPort"));
 
     let body = report.body(ReportSource::Cli);
-    assert!(body.contains("Sentinel: 32"));
+    assert!(body.contains("Sentinel: 33"));
     assert!(body.contains("origin_url"));
     assert!(body.contains("credential_memo"));
     assert!(body.contains("Entries extracted: 5"));
@@ -230,7 +230,7 @@ fn besteffort_fixture_sentinel_preserved_verbatim_in_report() {
         .decrypt_file(FIXTURE_PATH, &password())
         .unwrap();
     if let VersionStatus::BestEffort { report } = outcome.version_status {
-        assert_eq!(report.sentinel, "32");
+        assert_eq!(report.sentinel, "33");
         assert!(!report.sentinel.starts_with(' '));
         assert!(!report.sentinel.ends_with(' '));
     } else {
@@ -277,15 +277,50 @@ fn build_v31_shape_with_sentinel(sentinel: &str, entries: Vec<TestEntry>) -> Str
 }
 
 #[test]
-fn sentinel_32_routes_through_besteffort() {
+fn sentinel_32_decrypts_as_known_v32() {
     let blob = build_v31_shape_with_sentinel("32", sample_entries());
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();
+    assert_eq!(outcome.entries.len(), sample_entries().len());
     match outcome.version_status {
-        VersionStatus::BestEffort { report } => assert_eq!(report.sentinel, "32"),
-        other => panic!("expected BestEffort, got {other:?}"),
+        VersionStatus::Known { version } => {
+            assert_eq!(version, SpassFormatVersion::V32);
+        }
+        other => panic!("expected Known V32, got {other:?}"),
     }
+}
+
+#[test]
+fn v32_with_reordered_columns_and_extra_preamble_stays_known() {
+    // The schema parser resolves columns by name and finds next_table
+    // itself, so a v32 that drifts within the family shape still parses
+    // as Known.
+    let blob_bytes = {
+        let mut columns = SpassGenerator::canonical_v31_header();
+        // Swap title ahead of origin_url.
+        let t = columns.iter().position(|c| *c == "title").unwrap();
+        let o = columns.iter().position(|c| *c == "origin_url").unwrap();
+        columns.swap(t, o);
+        SpassGenerator::new(TEST_PASSWORD)
+            .with_version(SpassFormatVersion::V32)
+            .with_v31_header(columns)
+            .entries(sample_entries())
+            .generate()
+    };
+    let outcome = production_pipeline()
+        .decrypt_string(&blob_bytes, &password())
+        .unwrap();
+    assert_eq!(outcome.entries.len(), sample_entries().len());
+    assert!(matches!(
+        outcome.version_status,
+        VersionStatus::Known {
+            version: SpassFormatVersion::V32
+        }
+    ));
+    let e = &outcome.entries.entries()[0];
+    assert_eq!(e.url.as_str(), sample_entries()[0].url);
+    assert_eq!(e.name.as_str(), sample_entries()[0].name);
 }
 
 #[test]
@@ -348,7 +383,7 @@ fn lenient_handles_reordered_canonical_columns() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0x55; 20])
         .with_iv([0x66; 16])
@@ -386,7 +421,7 @@ fn lenient_handles_extra_columns_appended_to_canonical() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0x77; 20])
         .with_iv([0x88; 16])
@@ -431,7 +466,7 @@ fn lenient_handles_extra_columns_inserted_between_canonical() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0x99; 20])
         .with_iv([0xaa; 16])
@@ -460,7 +495,7 @@ fn lenient_handles_minimal_header_with_only_required_columns() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0xbb; 20])
         .with_iv([0xcc; 16])
@@ -495,7 +530,7 @@ fn missing_password_column_produces_unparseable_with_diagnostic() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0xdd; 20])
         .with_iv([0xee; 16])
@@ -507,7 +542,7 @@ fn missing_password_column_produces_unparseable_with_diagnostic() {
         .unwrap_err();
     match err {
         SpassError::UnknownVersionUnparseable(report) => {
-            assert_eq!(report.sentinel, "32");
+            assert_eq!(report.sentinel, "33");
             assert_eq!(report.missing_required_columns, vec!["password_value"]);
             assert_eq!(report.entries_extracted, 0);
             // Recognized + unknown still populated for the user-facing diff.
@@ -530,7 +565,7 @@ fn missing_multiple_required_columns_lists_all_in_report() {
 
     let blob = SpassGenerator::new(TEST_PASSWORD)
         .with_version(SpassFormatVersion::V31)
-        .with_sentinel("32")
+        .with_sentinel("33")
         .with_v31_header(header)
         .with_salt([0x12; 20])
         .with_iv([0x34; 16])
@@ -636,7 +671,7 @@ fn lenient_round_trips_unicode_in_entries() {
         "Notes with عربى script and \"quotes\"",
     )];
 
-    let blob = build_v31_shape_with_sentinel("32", entries);
+    let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();
@@ -669,7 +704,7 @@ fn lenient_round_trips_android_uri_entries() {
         ),
     ];
 
-    let blob = build_v31_shape_with_sentinel("32", entries);
+    let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();
@@ -691,7 +726,7 @@ fn lenient_round_trips_long_field_values() {
         "".to_string(),
     )];
 
-    let blob = build_v31_shape_with_sentinel("32", entries);
+    let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();
@@ -714,7 +749,7 @@ fn lenient_round_trips_empty_note_via_absent_sentinel() {
         "", // testkit emits absent sentinel for empty notes on v31
     )];
 
-    let blob = build_v31_shape_with_sentinel("32", entries);
+    let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();
@@ -731,7 +766,7 @@ fn wrong_password_on_unknown_version_fails_at_crypto_layer() {
     // version file is still a Decryption error, not UnknownVersion. Confirms
     // we don't accidentally leak the sentinel through the wrong-password
     // error path.
-    let blob = build_v31_shape_with_sentinel("32", sample_entries());
+    let blob = build_v31_shape_with_sentinel("33", sample_entries());
     let err = production_pipeline()
         .decrypt_string(&blob, &EntryPassword::new("WrongPassword".into()))
         .unwrap_err();
@@ -750,7 +785,7 @@ fn unknown_version_with_zero_entries_succeeds_with_empty_collection() {
     // entries". An empty BestEffort file -- e.g. a brand-new Samsung
     // account with nothing exported yet -- should still parse cleanly so
     // the consumer can show an "all good but nothing to import" state.
-    let blob = build_v31_shape_with_sentinel("32", Vec::new());
+    let blob = build_v31_shape_with_sentinel("33", Vec::new());
     let outcome = production_pipeline()
         .decrypt_string(&blob, &password())
         .unwrap();

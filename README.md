@@ -12,7 +12,7 @@ Samsung Pass only exports passwords as encrypted `.spass` files that restore on 
 
 - AES-256-CBC decryption with PBKDF2-HMAC-SHA256 (70,000 iterations)
 - Strict support for both known Samsung Pass plaintext formats: **V3.0** (`spass_export_v1` line-1 sentinel) and **V3.1** (`31` sentinel)
-- **Best-effort parsing for future / unknown versions** -- files with an unrecognised line-1 sentinel route to a schema-driven lenient parser that resolves the 5 required columns by name and extracts what it can, with a structured diagnostic for the contribution loop. See [Unknown / future versions](#unknown--future-versions) below.
+- **One default parser for the 35-column family, best-effort for unknown versions** -- v31, v32, and any unrecognised line-1 sentinel all go through a schema-driven parser that resolves the 5 required columns by name; unknown sentinels additionally surface a structured diagnostic for the contribution loop. See [Unknown / future versions](#unknown--future-versions) below.
 - CSV and JSON export
 - Interactive CLI with password prompting, progress bars, and coloured output
 - File inspection -- view `.spass` structure without decrypting
@@ -55,8 +55,8 @@ for entry in outcome.entries.iter() {
     println!("{}: {}", entry.name.as_str(), entry.username.as_str());
 }
 
-// Inspect whether the file went through a strict known-version parser
-// or the schema-driven lenient fallback. The lenient path means the
+// Inspect whether the file's version sentinel was recognised.
+// The best-effort path means the
 // file's sentinel was unrecognised; the report carries everything a
 // consumer needs to render a "help us add support" prompt.
 match outcome.version_status {
@@ -79,7 +79,7 @@ match outcome.version_status {
 
 `DecryptionPipeline::default()` uses the canonical `PBKDF2_ITERATIONS` constant (70 000). Pass `DecryptionPipeline::new(N)` to test with a lower iteration count in benchmarks.
 
-`pipeline.decrypt_file` and `decrypt_string` return a `DecryptOutcome` carrying both the extracted entries and a `VersionStatus`. The `Known` arm fires on the two strict-supported formats; `BestEffort { report }` fires when the lenient parser handled an unrecognised version.
+`pipeline.decrypt_file` and `decrypt_string` return a `DecryptOutcome` carrying both the extracted entries and a `VersionStatus`. The `Known` arm fires on the recognised sentinels (v30, v31, v32); `BestEffort { report }` fires on an unrecognised version.
 
 ## CLI
 
@@ -155,21 +155,22 @@ There is no hardware crypto path in wasm; throughput is lower than native but we
 
 | Version | Status | Line-1 sentinel (in decrypted plaintext) |
 |---|---|---|
-| V3.0 | Strict | `spass_export_v1` -- the literal Samsung writes |
-| V3.1 | Strict | `31` -- numeric |
-| Future / unknown | Best-effort | anything else (e.g. `32`) -- see below |
+| V3.0 | Known -- dedicated parser | `spass_export_v1` -- the literal Samsung writes |
+| V3.1 | Known -- default schema parser | `31` -- numeric |
+| V3.2 | Known -- default schema parser (same layout as v31) | `32` -- numeric |
+| Future / unknown | Best-effort -- same schema parser | anything else (e.g. `33`) -- see below |
 
-`SpassFormatVersion::detect()` in `crates/spass-rs/src/format/version.rs` reads the first newline-terminated line of decrypted plaintext and dispatches: known sentinels go to the strict, version-specific parser; unknown sentinels go to the lenient parser.
+`SpassFormatVersion::detect()` in `crates/spass-rs/src/format/version.rs` reads the first newline-terminated line of decrypted plaintext and dispatches by wire family: v30 has its own parser; every 35-column version -- known or unknown -- goes through the one default schema parser at `crates/spass-rs/src/parser/schema.rs`.
 
-Adding strict V3.2 support later means a new variant + a new arm in `detect()` + a new `parser/v32/` module; consumers using the non-exhaustive enum will not break.
+Adding a future same-layout version means one new enum variant, one `detect()` arm, and one `wire_family()` line -- no parser code; consumers using the non-exhaustive enum will not break.
 
-Note: historical versions of the in-tree testkit wrote the literal `30` for V3.0 fixtures. Real Samsung Pass V3.0 files write `spass_export_v1`. The library accepts the latter (matches real exports) and routes the former through the lenient parser as an unknown sentinel. If you have an old test fixture, regenerate it from the current testkit for the strict path.
+Note: historical versions of the in-tree testkit wrote the literal `30` for V3.0 fixtures. Real Samsung Pass V3.0 files write `spass_export_v1`. The library accepts the latter (matches real exports) and routes the former through the schema parser as an unknown sentinel. If you have an old test fixture, regenerate it from the current testkit.
 
 ## Unknown / future versions
 
-When Samsung ships a format we don't strictly support yet, files route to the schema-driven lenient parser at `crates/spass-rs/src/parser/lenient.rs`. It:
+When Samsung ships a format we don't know yet, files route to the same default schema parser that serves v31/v32 (`crates/spass-rs/src/parser/schema.rs`) -- just tagged `BestEffort` instead of `Known`. The parser:
 
-1. Reads the v31-shape header after the `next_table` marker.
+1. Reads the 35-column-shape header after the `next_table` marker.
 2. Walks the header looking for the 5 canonical column names we project to `PasswordEntry` (`origin_url`, `username_value`, `password_value`, `title`, `credential_memo`).
 3. If all 5 are present, tokenizes each row by looked-up index (not hardcoded position, so reordered or appended columns still parse).
 4. Returns the entries plus a `BestEffortReport` for the contribution loop.
@@ -188,7 +189,7 @@ if let VersionStatus::BestEffort { report } = outcome.version_status {
 
 This means support for the next Samsung Pass version can ship within a day or two of a real file landing in an issue, rather than after a full reverse-engineering pass. The shipped CLI / WASM / UniFFI consumers all surface the report through their respective UI affordances (stderr block, JSON `version_status` field, Swift `FfiBestEffortReport`).
 
-See [`spass-docs/rfc/012-best-effort-fallback.md`](https://github.com/CoreEngineX/spass-docs/blob/dev/rfc/012-best-effort-fallback.md) for the full design.
+See [`spass-docs/rfc/012-best-effort-fallback.md`](https://github.com/CoreEngineX/spass-docs/blob/dev/rfc/012-best-effort-fallback.md) for the original best-effort design and [`spass-docs/rfc/014-spass-format-v32.md`](https://github.com/CoreEngineX/spass-docs/blob/dev/rfc/014-spass-format-v32.md) for the consolidation into one default parser.
 
 ## Hardware crypto
 

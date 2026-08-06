@@ -24,7 +24,7 @@ pub enum SpassError {
     /// The message is intentionally vague — distinguishing wrong password from
     /// corrupted data leaks information useful for padding oracle attacks.
     Decryption(String),
-    /// File's version sentinel was unrecognised AND the lenient parser
+    /// The schema parser
     /// couldn't resolve all 5 required columns by name -- so we have nothing
     /// usable to hand the caller. The report carries the header metadata so
     /// the consumer can still build a contribution URL for the user.

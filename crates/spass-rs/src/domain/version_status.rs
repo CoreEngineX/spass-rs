@@ -1,12 +1,12 @@
 //! Outcome wrapper + version-status discriminator returned by the decryption pipeline.
 //!
-//! Two paths land here. A file whose line-1 sentinel matches a version this
-//! crate knows strictly (`"spass_export_v1"`, `"31"`) decrypts via the
-//! version-specific parser and produces `VersionStatus::Known`. A file whose
-//! sentinel is unrecognised falls into the schema-driven lenient parser and
-//! produces `VersionStatus::BestEffort` carrying a [`BestEffortReport`] -- the
-//! same struct is also returned via `SpassError::UnknownVersionUnparseable`
-//! when the lenient parser can't resolve all 5 required columns.
+//! Two paths land here. A file whose line-1 sentinel is in the version
+//! table (`"spass_export_v1"`, `"31"`, `"32"`) produces
+//! `VersionStatus::Known`. A file whose sentinel is unrecognised runs the
+//! same default schema parser as the known 35-column versions but produces
+//! `VersionStatus::BestEffort` carrying a [`BestEffortReport`] -- the same
+//! struct is also returned via `SpassError::UnknownVersionUnparseable`
+//! when the schema parser can't resolve all 5 required columns.
 //!
 //! The report is the load-bearing piece for the "help us add support" loop:
 //! consumers (CLI, web, iOS) format it into a GitHub-issue URL or a Mail
@@ -23,7 +23,7 @@ use crate::format::SpassFormatVersion;
 /// Diagnostic payload describing a file whose format version this crate
 /// doesn't strictly know.
 ///
-/// Populated by the lenient parser path. Contains only column-name metadata
+/// Populated by the schema parser. Contains only column-name metadata
 /// from the file's header, never row data. Consumers feed it into the
 /// helper methods below to build a contribution URL.
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub struct BestEffortReport {
     /// Header column names we didn't match against the canonical set. Useful
     /// for triage when adding support for a new version.
     pub unknown_columns: Vec<String>,
-    /// Rows extracted on the lenient path. Zero on the failure path.
+    /// Rows extracted. Zero on the failure path.
     pub entries_extracted: usize,
 }
 
@@ -210,8 +210,7 @@ impl BestEffortReport {
     }
 }
 
-/// Whether the pipeline used a strict known-version parser or fell back to
-/// the schema-driven lenient parser.
+/// Whether the file's version sentinel was in the known-version table.
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "export-json",
@@ -225,7 +224,7 @@ pub enum VersionStatus {
         /// Which strict version was matched.
         version: SpassFormatVersion,
     },
-    /// File's sentinel was unrecognised. The lenient parser extracted what
+    /// File's sentinel was unrecognised. The schema parser extracted what
     /// it could; `report` carries the diagnostic for the contribution flow.
     BestEffort {
         /// Header columns + sentinel; pass through `BestEffortReport`
@@ -246,8 +245,7 @@ pub enum VersionStatus {
 pub struct DecryptOutcome {
     /// Extracted password entries.
     pub entries: PasswordEntryCollection,
-    /// Whether extraction went through a strict parser or the lenient
-    /// fallback.
+    /// Whether the file's version sentinel was recognised.
     pub version_status: VersionStatus,
 }
 

@@ -1,23 +1,21 @@
 //! Password entry parsers for different formats.
 //!
-//! This module provides parsing functionality for converting decrypted data
-//! into structured password entries. Each Samsung Pass version lives in its
-//! own `parser/vNN/` subdirectory; adding a new version is purely additive.
+//! Two parsers total. `v30` handles the original comma-delimited plaintext
+//! CSV. `schema` is the default parser for the 35-column semicolon + Base64
+//! family (v31, v32, and every unknown sentinel): it resolves the projected
+//! columns by name from the header, so a same-layout Samsung version bump
+//! needs no parser changes at all.
 //!
-//! `lenient` is the fallback path for files whose line-1 sentinel matches no
-//! known version. It's invoked directly by the pipeline (not via the
-//! [`ParserRegistry`]) because its API takes a sentinel string and returns
-//! a [`crate::domain::BestEffortReport`] alongside the entries -- neither of
-//! which fits the [`DataParser`] trait's signature.
+//! The pipeline calls [`SchemaParser::parse_with_report`] directly (its
+//! sentinel-in, report-out signature doesn't fit the [`DataParser`] trait);
+//! the trait impl serves the [`ParserRegistry`] tooling surface.
 
-mod lenient;
 mod registry;
+mod schema;
 pub mod trait_def;
 pub mod v30;
-pub mod v31;
 
-pub(crate) use lenient::LenientV31Parser;
 pub use registry::ParserRegistry;
+pub use schema::SchemaParser;
 pub use trait_def::{DataParser, FormatId, ParserSchema};
 pub use v30::SpassCsvV30Parser;
-pub use v31::SpassCsvV31Parser;

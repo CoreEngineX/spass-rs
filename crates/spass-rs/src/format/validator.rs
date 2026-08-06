@@ -7,18 +7,22 @@
 //! like a real Samsung Pass export and not a wrong-key collision.
 //!
 //! Two checks:
-//! - Format marker on the version-specific line is exactly
-//!   `next_table` ([`FormatValidator::validate_spass_marker`]).
+//! - v30's format marker is exactly `next_table` on line 3
+//!   ([`FormatValidator::validate_v30_marker`]). The 35-column schema
+//!   family needs no pinned check -- its parser locates `next_table`
+//!   itself and errors if it's absent.
 //! - Payload size is non-empty and below a 100 MB ceiling
 //!   ([`FormatValidator::validate_data_size`]).
 //!
-//! The marker check is the primary wrong-password tripwire: AES-CBC
-//! with PKCS7 occasionally produces valid-padding output for a wrong
-//! key, but the resulting bytes won't carry the magic line.
+//! The marker check is the v30 wrong-password tripwire: AES-CBC with
+//! PKCS7 occasionally produces valid-padding output for a wrong key,
+//! but the resulting bytes won't carry the magic line.
 
 use crate::domain::{DecryptedData, SpassError, SpassResult};
-use crate::format::SpassFormatVersion;
 use std::io::{BufRead, BufReader, Cursor};
+
+/// 0-indexed line where v30 puts the `next_table` marker.
+const V30_MARKER_LINE: usize = 2;
 
 /// Structural checks on decrypted `.spass` data. See module docs for
 /// the role this plays in distinguishing wrong-password output from
@@ -33,28 +37,21 @@ impl FormatValidator {
         Self
     }
 
-    /// Checks that the version-specific marker line is exactly
-    /// `next_table`. v30 expects the marker on line 3 (index 2); v31
-    /// inserts an extra metadata line and expects it on line 4
-    /// (index 3). The version is passed in by the pipeline after the
-    /// internal version-sentinel detector reads line 1.
+    /// Checks that v30's marker line (line 3, index 2) is exactly
+    /// `next_table`. Called by the pipeline only for the v30 wire
+    /// family, after the sentinel detector reads line 1.
     ///
     /// # Errors
     ///
-    /// `SpassError::Validation` if the data has fewer lines than the
-    /// version requires, a line can't be read, or the marker line
-    /// doesn't equal `next_table`.
-    pub fn validate_spass_marker(
-        &self,
-        data: &DecryptedData,
-        version: SpassFormatVersion,
-    ) -> SpassResult<()> {
-        let target = version.marker_line();
+    /// `SpassError::Validation` if the data has fewer lines than
+    /// required, a line can't be read, or the marker line doesn't
+    /// equal `next_table`.
+    pub fn validate_v30_marker(&self, data: &DecryptedData) -> SpassResult<()> {
         let cursor = Cursor::new(data.as_bytes());
         let reader = BufReader::new(cursor);
 
         for (line_num, line_result) in reader.lines().enumerate() {
-            if line_num == target {
+            if line_num == V30_MARKER_LINE {
                 let line_content = line_result
                     .map_err(|e| SpassError::Validation(format!("Failed to read line: {e}")))?;
 
@@ -63,7 +60,7 @@ impl FormatValidator {
                 }
                 return Err(SpassError::Validation(format!(
                     "Expected 'next_table' on line {}, found '{}'",
-                    target + 1,
+                    V30_MARKER_LINE + 1,
                     line_content.trim()
                 )));
             }
@@ -112,36 +109,23 @@ mod tests {
     fn validate_v30_marker_on_line_3() {
         let v = FormatValidator::new();
         let d = data("spass_export_v1\nfoo\nnext_table\nrest\n");
-        v.validate_spass_marker(&d, SpassFormatVersion::V30)
-            .unwrap();
+        v.validate_v30_marker(&d).unwrap();
     }
 
     #[test]
-    fn validate_v31_marker_on_line_4() {
+    fn v30_marker_elsewhere_errors() {
         let v = FormatValidator::new();
-        let d = data("31\nflags\nfalse\nnext_table\nheader\n");
-        v.validate_spass_marker(&d, SpassFormatVersion::V31)
-            .unwrap();
-    }
-
-    #[test]
-    fn v31_marker_on_v30_line_errors() {
-        let v = FormatValidator::new();
-        let d = data("spass_export_v1\nfoo\nnext_table\nrest\n");
-        let err = v
-            .validate_spass_marker(&d, SpassFormatVersion::V31)
-            .unwrap_err();
-        assert!(err.to_string().contains("line 4"));
-    }
-
-    #[test]
-    fn v30_marker_on_v31_line_errors() {
-        let v = FormatValidator::new();
-        let d = data("31\nflags\nfalse\nnext_table\nheader\n");
-        let err = v
-            .validate_spass_marker(&d, SpassFormatVersion::V30)
-            .unwrap_err();
+        let d = data("spass_export_v1\nfoo\nbar\nnext_table\n");
+        let err = v.validate_v30_marker(&d).unwrap_err();
         assert!(err.to_string().contains("line 3"));
+    }
+
+    #[test]
+    fn v30_marker_missing_lines_errors() {
+        let v = FormatValidator::new();
+        let d = data("spass_export_v1\nfoo\n");
+        let err = v.validate_v30_marker(&d).unwrap_err();
+        assert!(err.to_string().contains("Insufficient"));
     }
 
     #[test]

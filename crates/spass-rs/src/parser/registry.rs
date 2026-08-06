@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
+use super::schema::SchemaParser;
 use super::trait_def::{DataParser, FormatId};
 use super::v30::SpassCsvV30Parser;
-use super::v31::SpassCsvV31Parser;
 use crate::domain::{PasswordEntryCollection, SpassResult};
 
 type ParseFn = Box<dyn Fn(&[u8]) -> SpassResult<PasswordEntryCollection> + Send + Sync>;
@@ -38,7 +38,8 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     /// Registry pre-populated with the two parsers this crate ships:
     /// [`SpassCsvV30Parser`] ([`FormatId::SpassCsvV30`]) and
-    /// [`SpassCsvV31Parser`] ([`FormatId::SpassCsvV31`]).
+    /// [`SchemaParser`] ([`FormatId::SpassCsvV31`] -- the id names the
+    /// family's first version; the parser serves every 35-column layout).
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -55,11 +56,11 @@ impl ParserRegistry {
         );
 
         registry.parsers.insert(
-            SpassCsvV31Parser::FORMAT_ID,
+            SchemaParser::FORMAT_ID,
             (
-                Box::new(|data| SpassCsvV31Parser::new().parse(data)),
-                Box::new(|data| SpassCsvV31Parser::new().can_parse(data)),
-                SpassCsvV31Parser::NAME,
+                Box::new(|data| SchemaParser::new().parse(data)),
+                Box::new(|data| SchemaParser::new().can_parse(data)),
+                SchemaParser::NAME,
             ),
         );
 
@@ -175,11 +176,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parser_name_v31() {
+    fn test_parser_name_schema() {
         let registry = ParserRegistry::new();
         assert_eq!(
             registry.parser_name(FormatId::SpassCsvV31),
-            Some("SPass CSV v31 Parser")
+            Some("SPass 35-column schema parser")
         );
     }
 

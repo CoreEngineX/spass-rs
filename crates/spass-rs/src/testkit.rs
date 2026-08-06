@@ -108,10 +108,11 @@ pub struct SpassGenerator {
     /// Plaintext format version to emit. Defaults to v30 so existing callers
     /// don't need to touch their code; flip to v31 with `.with_version()`.
     version: crate::format::SpassFormatVersion,
-    /// Overrides line 1 of the plaintext for v31-shape generation. When set,
-    /// the wire shape is still v31 (35 columns, Base64, semicolons) but the
-    /// sentinel is whatever was passed -- useful for exercising the lenient
-    /// fallback parser on a synthetic "v32" file. v30 emission ignores this.
+    /// Overrides line 1 of the plaintext for 35-column-shape generation.
+    /// When set, the wire shape is unchanged (35 columns, Base64,
+    /// semicolons) but the sentinel is whatever was passed -- useful for
+    /// exercising the unknown-sentinel best-effort path (e.g. `"33"`).
+    /// v30 emission ignores this.
     sentinel_override: Option<String>,
     /// Overrides the v31 header column list. When set, the emitted file's
     /// header is exactly the strings in this list (semicolon-joined) and
@@ -121,7 +122,7 @@ pub struct SpassGenerator {
     /// `credential_memo`) in this list. Names absent from the list cause
     /// their corresponding entry field to be dropped. v30 emission ignores
     /// this. Use to build "missing required column" or "reordered" or
-    /// "extra columns" fixtures for the lenient parser.
+    /// "extra columns" fixtures for the schema parser.
     v31_header_override: Option<Vec<&'static str>>,
 }
 
@@ -148,9 +149,9 @@ impl SpassGenerator {
         self
     }
 
-    /// Overrides the line-1 version sentinel for v31-shape generation.
-    /// Useful to build a "v32"-style file that the strict parser won't
-    /// recognise so tests can drive the lenient fallback path.
+    /// Overrides the line-1 version sentinel for 35-column-shape
+    /// generation. Useful to build a file with an unknown sentinel
+    /// (e.g. `"33"`) so tests can drive the best-effort path.
     #[must_use]
     pub fn with_sentinel(mut self, sentinel: impl Into<String>) -> Self {
         self.sentinel_override = Some(sentinel.into());
@@ -161,7 +162,7 @@ impl SpassGenerator {
     /// exactly `columns` (semicolon-joined); per-entry values are written
     /// at whichever positions hold the canonical names. Use to build
     /// "missing required column", "reordered", or "extra columns"
-    /// fixtures for the lenient parser.
+    /// fixtures for the schema parser.
     #[must_use]
     pub fn with_v31_header(mut self, columns: Vec<&'static str>) -> Self {
         self.v31_header_override = Some(columns);
@@ -237,7 +238,12 @@ impl SpassGenerator {
     fn build_plaintext(&self) -> String {
         match self.version {
             crate::format::SpassFormatVersion::V30 => self.build_plaintext_v30(),
-            crate::format::SpassFormatVersion::V31 => self.build_plaintext_v31(),
+            // V32 is the same 35-column wire shape as V31; only the line-1
+            // sentinel differs, which build_plaintext_v31 derives from the
+            // selected version (or with_sentinel).
+            crate::format::SpassFormatVersion::V31 | crate::format::SpassFormatVersion::V32 => {
+                self.build_plaintext_v31()
+            }
         }
     }
 
@@ -317,9 +323,13 @@ impl SpassGenerator {
         let idx_credential_memo = header_cols.iter().position(|c| *c == "credential_memo");
 
         let mut out = String::new();
-        // Line 1: version sentinel. `with_sentinel(...)` overrides to drive
-        // the lenient fallback in tests.
-        let sentinel = self.sentinel_override.as_deref().unwrap_or("31");
+        // Line 1: version sentinel, derived from the selected version.
+        // `with_sentinel(...)` overrides to drive the unknown-sentinel
+        // best-effort path in tests.
+        let sentinel = self
+            .sentinel_override
+            .as_deref()
+            .unwrap_or_else(|| self.version.sentinel_str());
         out.push_str(sentinel);
         out.push('\n');
         // Line 2: 4-bool metadata flags.
@@ -930,13 +940,12 @@ mod tests {
         println!("\nPassword for all v31 fixtures: {FIXTURE_PASSWORD}");
     }
 
-    /// Generates a synthetic `.spass` fixture with line-1 sentinel `"32"`
-    /// at `spass-core/gen-test/besteffort/synthetic-v32.spass`. The wire
-    /// shape is canonical v31 (35 columns, Base64, semicolons) so the
-    /// lenient parser's name-keyed lookup finds all 5 required columns.
-    /// Used by the besteffort integration tests to confirm the pipeline
-    /// routes unknown sentinels through the BestEffort path without
-    /// regression on a real file-on-disk.
+    /// Generates a synthetic `.spass` fixture with unknown line-1 sentinel
+    /// `"33"` at `spass-core/gen-test/besteffort/synthetic-v33.spass`. The
+    /// wire shape is the canonical 35-column layout, so the schema parser's
+    /// name-keyed lookup finds all 5 required columns. Used by the
+    /// besteffort integration tests to confirm the pipeline routes unknown
+    /// sentinels through the BestEffort path on a real file-on-disk.
     ///
     /// Run with:
     ///   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
@@ -987,15 +996,15 @@ mod tests {
             ),
         ];
 
-        let path = format!("{FIXTURE_DIR_BESTEFFORT}/synthetic-v32.spass");
+        let path = format!("{FIXTURE_DIR_BESTEFFORT}/synthetic-v33.spass");
         SpassGenerator::new(FIXTURE_PASSWORD)
             .with_version(SpassFormatVersion::V31)
-            .with_sentinel("32")
+            .with_sentinel("33")
             .entries(entries)
             .write_to_file(&path);
 
         let size_kb = std::fs::metadata(&path).unwrap().len() as f64 / 1024.0;
-        println!("wrote besteffort/synthetic-v32.spass (5 entries, {size_kb:.1} KB)");
+        println!("wrote besteffort/synthetic-v33.spass (5 entries, {size_kb:.1} KB)");
         println!("File password: {FIXTURE_PASSWORD}");
     }
 
@@ -1600,37 +1609,67 @@ mod tests {
     }
 
     #[test]
-    fn strict_v31_failure_does_not_fall_back_to_lenient() {
+    fn known_version_empty_table_parses_to_zero_entries() {
+        use crate::domain::VersionStatus;
+
+        // A valid export with zero saved passwords is not an error, and
+        // the status stays Known -- no banner.
+        let gen = generator().with_version(crate::format::SpassFormatVersion::V31);
+        let content = generate_low_iter(&gen);
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+
+        assert!(outcome.entries.is_empty());
+        assert!(matches!(
+            outcome.version_status,
+            VersionStatus::Known { .. }
+        ));
+    }
+
+    #[test]
+    fn known_version_missing_required_column_carries_report() {
         use crate::domain::SpassError;
 
-        // Empty entries -> strict v31 parser errors with "No password entries
-        // found in CSV file". The pipeline must propagate that error rather
-        // than silently routing to the lenient parser.
-        let gen = generator().with_version(crate::format::SpassFormatVersion::V31);
+        // A v31-sentinel file whose header dropped a kept column must fail
+        // loudly with the contribution report -- the name-resolution
+        // protection that replaced the positional row-width tripwire.
+        let header: Vec<&'static str> = SpassGenerator::canonical_v31_header()
+            .into_iter()
+            .filter(|c| *c != "password_value")
+            .collect();
+        let gen = generator()
+            .with_version(crate::format::SpassFormatVersion::V31)
+            .with_v31_header(header)
+            .entry(TestEntry::new(
+                "https://example.com",
+                "alice",
+                "secret",
+                "Example",
+                "",
+            ));
         let content = generate_low_iter(&gen);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let err = pipeline().decrypt_string(&content, &pw).unwrap_err();
 
         match err {
-            SpassError::UnknownVersionUnparseable(_) => {
-                panic!("strict v31 failure must not fall back to lenient")
+            SpassError::UnknownVersionUnparseable(report) => {
+                assert_eq!(report.sentinel, "31");
+                assert_eq!(report.missing_required_columns, vec!["password_value"]);
             }
-            // Any other error variant is acceptable; the load-bearing check
-            // is the absence of the silent fallback above.
-            _ => {}
+            other => panic!("expected UnknownVersionUnparseable, got {other:?}"),
         }
     }
 
     #[test]
-    fn synthetic_v32_routes_through_best_effort() {
+    fn unknown_sentinel_routes_through_best_effort() {
         use crate::domain::VersionStatus;
         use crate::format::SpassFormatVersion;
 
-        // v31 wire shape + an unknown sentinel "32" -> pipeline should detect
-        // unknown, dispatch to the lenient parser, and surface BestEffort.
+        // 35-column wire shape + an unknown sentinel "33" -> pipeline should
+        // detect unknown, run the schema parser, and surface BestEffort.
         let gen = generator()
             .with_version(SpassFormatVersion::V31)
-            .with_sentinel("32")
+            .with_sentinel("33")
             .entry(TestEntry::new(
                 "https://example.com",
                 "alice",
@@ -1649,7 +1688,7 @@ mod tests {
 
         match outcome.version_status {
             VersionStatus::BestEffort { report } => {
-                assert_eq!(report.sentinel, "32");
+                assert_eq!(report.sentinel, "33");
                 assert!(report.missing_required_columns.is_empty());
                 assert_eq!(report.entries_extracted, 1);
                 // canonical v31 header has all 5 required columns

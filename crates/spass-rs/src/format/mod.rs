@@ -11,4 +11,4 @@ pub use decoder::DecodedFileBuilder;
 pub use validator::FormatValidator;
 pub use version::SpassFormatVersion;
 
-pub(crate) use version::DetectedVersion;
+pub(crate) use version::{DetectedVersion, WireFamily};

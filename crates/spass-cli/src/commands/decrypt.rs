@@ -2,7 +2,7 @@
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use spass::domain::{BestEffortReport, EntryPassword, VersionStatus};
+use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::pipeline::DecryptionPipeline;
 use spass::SpassError;
 use std::fs::File;
@@ -161,6 +161,6 @@ fn print_best_effort_block(report: &BestEffortReport, succeeded: bool) {
         }
     }
     eprintln!("  help add support for this version:");
-    eprintln!("    {}", report.github_issue_url());
+    eprintln!("    {}", report.github_issue_url(ReportSource::Cli));
     eprintln!();
 }

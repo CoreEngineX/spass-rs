@@ -35,7 +35,9 @@ pub mod format;
 pub mod parser;
 pub mod pipeline;
 
-pub use domain::{BestEffortReport, DecryptOutcome, SpassError, SpassResult, VersionStatus};
+pub use domain::{
+    BestEffortReport, DecryptOutcome, ReportSource, SpassError, SpassResult, VersionStatus,
+};
 
 #[cfg(any(test, feature = "generate-fixtures"))]
 pub mod testkit;

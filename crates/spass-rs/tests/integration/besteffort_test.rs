@@ -21,7 +21,7 @@
 //! Regenerate the committed fixture with:
 //!   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
 
-use spass::domain::{EntryPassword, SpassError, VersionStatus};
+use spass::domain::{EntryPassword, ReportSource, SpassError, VersionStatus};
 use spass::format::SpassFormatVersion;
 use spass::pipeline::DecryptionPipeline;
 use spass::testkit::{SpassGenerator, TestEntry};
@@ -170,7 +170,7 @@ fn besteffort_fixture_enumerates_unknown_columns_in_report() {
         );
     }
 
-    let body = report.body();
+    let body = report.body(ReportSource::Cli);
     assert!(body.contains("Unknown columns"));
     assert!(body.contains("_id"));
     assert!(body.contains("favicon"));
@@ -190,18 +190,18 @@ fn besteffort_fixture_report_helpers_produce_contribution_urls() {
     assert!(subject.contains("32"));
     assert!(subject.contains("SPassPort"));
 
-    let body = report.body();
+    let body = report.body(ReportSource::Cli);
     assert!(body.contains("Sentinel: 32"));
     assert!(body.contains("origin_url"));
     assert!(body.contains("credential_memo"));
     assert!(body.contains("Entries extracted: 5"));
 
-    let issue_url = report.github_issue_url();
+    let issue_url = report.github_issue_url(ReportSource::Cli);
     assert!(issue_url.starts_with("https://github.com/CoreEngineX/spass-rs/issues/new?"));
     assert!(issue_url.contains("title="));
     assert!(issue_url.contains("body="));
 
-    let mail_url = report.mailto_url("support@coreenginex.com");
+    let mail_url = report.mailto_url("support@coreenginex.com", ReportSource::Cli);
     assert!(mail_url.starts_with("mailto:support%40coreenginex.com"));
 }
 
@@ -553,7 +553,7 @@ fn missing_multiple_required_columns_lists_all_in_report() {
             assert_eq!(report.missing_required_columns.len(), 3);
 
             // Body must list every missing name so the recipient sees all 3.
-            let body = report.body();
+            let body = report.body(ReportSource::Cli);
             assert!(body.contains("username_value"));
             assert!(body.contains("password_value"));
             assert!(body.contains("title"));

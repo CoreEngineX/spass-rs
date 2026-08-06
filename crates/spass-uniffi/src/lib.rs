@@ -13,7 +13,7 @@
 //! `spass-docs/rfc/012-best-effort-fallback.md` for the version-status
 //! surface returned from [`decrypt`].
 
-use spass::domain::{BestEffortReport, EntryPassword, VersionStatus};
+use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::format::SpassFormatVersion;
 use spass::pipeline::DecryptionPipeline;
 
@@ -136,9 +136,9 @@ const SUPPORT_EMAIL: &str = "support@coreenginex.com";
 impl From<BestEffortReport> for FfiBestEffortReport {
     fn from(r: BestEffortReport) -> Self {
         let subject = r.subject();
-        let body = r.body();
-        let github_issue_url = r.github_issue_url();
-        let mailto_url = r.mailto_url(SUPPORT_EMAIL);
+        let body = r.body(ReportSource::IosApp);
+        let github_issue_url = r.github_issue_url(ReportSource::IosApp);
+        let mailto_url = r.mailto_url(SUPPORT_EMAIL, ReportSource::IosApp);
         Self {
             sentinel: r.sentinel,
             header_line: r.header_line,

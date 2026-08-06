@@ -11,7 +11,7 @@
 use serde_json::Value;
 use spass::format::SpassFormatVersion;
 use spass::testkit::{SpassGenerator, TestEntry};
-use spass_uniffi::{decrypt, SpassFfiError};
+use spass_uniffi::{decrypt, FfiVersionStatus, SpassFfiError};
 
 const TEST_PASSWORD: &str = "TestPassword123";
 
@@ -239,4 +239,35 @@ fn empty_input_returns_invalid_format_or_wrong_password() {
         ),
         "expected an InvalidFormat or WrongPassword error for empty input, got {result:?}"
     );
+}
+
+#[test]
+fn best_effort_report_precomputes_ios_contribution_strings() {
+    let file = SpassGenerator::new(TEST_PASSWORD)
+        .with_version(SpassFormatVersion::V31)
+        .with_sentinel("33")
+        .entry(TestEntry::new(
+            "https://example.com",
+            "user@example.com",
+            "password",
+            "Site",
+            "",
+        ))
+        .generate();
+
+    let outcome = decrypt(file, TEST_PASSWORD.into()).expect("best-effort decrypt should succeed");
+    let report = match outcome.version_status {
+        FfiVersionStatus::BestEffort { report } => report,
+        other => panic!("expected BestEffort, got {other:?}"),
+    };
+
+    assert_eq!(report.sentinel, "33");
+    assert!(report.subject.contains("33"));
+    assert!(report.body.ends_with("Sent from the SPassPort iOS app\n"));
+    assert!(report
+        .github_issue_url
+        .contains("Sent%20from%20the%20SPassPort%20iOS%20app"));
+    assert!(report
+        .mailto_url
+        .contains("Sent%20from%20the%20SPassPort%20iOS%20app"));
 }

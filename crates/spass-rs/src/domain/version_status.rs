@@ -47,8 +47,35 @@ pub struct BestEffortReport {
     pub entries_extracted: usize,
 }
 
+/// Which surface is rendering the report. Stamps the body's closing
+/// "Sent from ..." provenance line so support can tell which platform a
+/// report came from; everything else in the body stays identical across
+/// platforms. The phrase is a static compile-time string -- the report's
+/// column-names-only privacy invariant is unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportSource {
+    /// "Sent from the `SPassPort` iOS app" -- used by `spass-uniffi`.
+    IosApp,
+    /// "Sent from the `SPassPort` web app" -- used by `spass-wasm`.
+    WebApp,
+    /// "Sent from the spass CLI" -- used by `spass-cli`.
+    Cli,
+}
+
+impl ReportSource {
+    fn phrase(self) -> &'static str {
+        match self {
+            Self::IosApp => "the SPassPort iOS app",
+            Self::WebApp => "the SPassPort web app",
+            Self::Cli => "the spass CLI",
+        }
+    }
+}
+
 impl BestEffortReport {
     /// Subject line for both the mailto and the GitHub issue templates.
+    /// Takes no [`ReportSource`] deliberately -- the subject stays
+    /// identical across platforms.
     #[must_use]
     pub fn subject(&self) -> String {
         if self.missing_required_columns.is_empty() {
@@ -67,9 +94,10 @@ impl BestEffortReport {
     /// Multi-line plain-text body shared by the mail-composer and the
     /// GitHub-issue paths. Same text the user sees in their composer before
     /// hitting Send, so it has to read as a human-written report -- no
-    /// machine-y prefixes, no implementation jargon.
+    /// machine-y prefixes, no implementation jargon. `source` stamps the
+    /// closing "Sent from ..." line naming the platform.
     #[must_use]
-    pub fn body(&self) -> String {
+    pub fn body(&self, source: ReportSource) -> String {
         let mut out = String::with_capacity(1024);
         let lenient_failed = !self.missing_required_columns.is_empty();
 
@@ -151,6 +179,8 @@ impl BestEffortReport {
             );
         }
 
+        let _ = write!(out, "\nSent from {}\n", source.phrase());
+
         out
     }
 
@@ -158,11 +188,11 @@ impl BestEffortReport {
     /// CLI (which can't open a Mail composer) and the secondary fallback on
     /// iOS / web when the user has no mail client wired up.
     #[must_use]
-    pub fn github_issue_url(&self) -> String {
+    pub fn github_issue_url(&self, source: ReportSource) -> String {
         format!(
             "https://github.com/CoreEngineX/spass-rs/issues/new?title={}&body={}",
             percent_encode(&self.subject()),
-            percent_encode(&self.body())
+            percent_encode(&self.body(source))
         )
     }
 
@@ -170,12 +200,12 @@ impl BestEffortReport {
     /// web consumer; iOS prefers `MFMailComposeViewController` (no URL length
     /// limit) and pulls `subject()` + `body()` directly.
     #[must_use]
-    pub fn mailto_url(&self, to: &str) -> String {
+    pub fn mailto_url(&self, to: &str, source: ReportSource) -> String {
         format!(
             "mailto:{}?subject={}&body={}",
             percent_encode(to),
             percent_encode(&self.subject()),
-            percent_encode(&self.body())
+            percent_encode(&self.body(source))
         )
     }
 }
@@ -272,7 +302,7 @@ mod tests {
     #[test]
     fn body_carries_sentinel_and_header() {
         let r = fake_report("32", vec![]);
-        let body = r.body();
+        let body = r.body(ReportSource::Cli);
         assert!(body.contains("Sentinel: 32"));
         assert!(body.contains("origin_url"));
     }
@@ -280,24 +310,61 @@ mod tests {
     #[test]
     fn body_failure_variant_lists_missing() {
         let r = fake_report("32", vec!["password_value"]);
-        let body = r.body();
+        let body = r.body(ReportSource::Cli);
         assert!(body.contains("Missing required columns"));
         assert!(body.contains("password_value"));
     }
 
     #[test]
+    fn body_ends_with_provenance_line_per_source() {
+        let r = fake_report("32", vec![]);
+        assert!(r
+            .body(ReportSource::IosApp)
+            .ends_with("Sent from the SPassPort iOS app\n"));
+        assert!(r
+            .body(ReportSource::WebApp)
+            .ends_with("Sent from the SPassPort web app\n"));
+        assert!(r
+            .body(ReportSource::Cli)
+            .ends_with("Sent from the spass CLI\n"));
+    }
+
+    #[test]
+    fn failure_variant_body_also_carries_provenance_line() {
+        let r = fake_report("32", vec!["password_value"]);
+        assert!(r
+            .body(ReportSource::IosApp)
+            .ends_with("Sent from the SPassPort iOS app\n"));
+    }
+
+    #[test]
+    fn provenance_line_is_the_only_cross_platform_difference() {
+        let r = fake_report("32", vec![]);
+        let ios = r.body(ReportSource::IosApp);
+        let web = r.body(ReportSource::WebApp);
+        let ios_prefix = ios
+            .strip_suffix("Sent from the SPassPort iOS app\n")
+            .unwrap();
+        let web_prefix = web
+            .strip_suffix("Sent from the SPassPort web app\n")
+            .unwrap();
+        assert_eq!(ios_prefix, web_prefix);
+    }
+
+    #[test]
     fn github_url_has_title_and_body_params() {
         let r = fake_report("32", vec![]);
-        let url = r.github_issue_url();
+        let url = r.github_issue_url(ReportSource::Cli);
         assert!(url.starts_with("https://github.com/CoreEngineX/spass-rs/issues/new?"));
         assert!(url.contains("title="));
         assert!(url.contains("body="));
+        assert!(url.contains("Sent%20from%20the%20spass%20CLI"));
     }
 
     #[test]
     fn mailto_url_encodes_spaces_and_brackets() {
         let r = fake_report("32", vec![]);
-        let url = r.mailto_url("support@coreenginex.com");
+        let url = r.mailto_url("support@coreenginex.com", ReportSource::WebApp);
         // "support@coreenginex.com" round-trips with @ percent-encoded.
         assert!(url.starts_with("mailto:support%40coreenginex.com"));
         // Spaces in the subject become %20, square brackets become %5B / %5D.

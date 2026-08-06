@@ -44,7 +44,7 @@ spass = "0.2"
 
 ```rust
 use spass::pipeline::DecryptionPipeline;
-use spass::domain::{EntryPassword, VersionStatus};
+use spass::domain::{EntryPassword, ReportSource, VersionStatus};
 
 let pipeline = DecryptionPipeline::default();
 let password = EntryPassword::new("my_password".to_string());
@@ -68,7 +68,10 @@ match outcome.version_status {
             "warning: unknown version {:?}; verify entries before importing",
             report.sentinel,
         );
-        eprintln!("  help us add support: {}", report.github_issue_url());
+        eprintln!(
+            "  help us add support: {}",
+            report.github_issue_url(ReportSource::Cli)
+        );
     }
     _ => {}
 }
@@ -172,14 +175,14 @@ When Samsung ships a format we don't strictly support yet, files route to the sc
 4. Returns the entries plus a `BestEffortReport` for the contribution loop.
 5. If any required column is absent, returns `SpassError::UnknownVersionUnparseable(Box<BestEffortReport>)` carrying the same diagnostic so the consumer can still build a contribution URL.
 
-The `BestEffortReport` carries header column-name metadata only -- **never row data**. It exposes pre-built `subject()` / `body()` / `github_issue_url()` / `mailto_url()` helpers so consumers don't reimplement the contribution-message format:
+The `BestEffortReport` carries header column-name metadata only -- **never row data**. It exposes pre-built `subject()` / `body(source)` / `github_issue_url(source)` / `mailto_url(to, source)` helpers so consumers don't reimplement the contribution-message format. The `ReportSource` argument (`IosApp` / `WebApp` / `Cli`) stamps a closing "Sent from ..." line naming the platform; the subject and the rest of the body stay identical across platforms:
 
 ```rust
-use spass::domain::VersionStatus;
+use spass::domain::{ReportSource, VersionStatus};
 
 if let VersionStatus::BestEffort { report } = outcome.version_status {
-    let url = report.github_issue_url(); // ready-to-open URL
-    let body = report.body();             // mail-composer body
+    let url = report.github_issue_url(ReportSource::Cli); // ready-to-open URL
+    let body = report.body(ReportSource::Cli);            // mail-composer body
 }
 ```
 

@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 [dependencies]
 spass = { path = "../spass-rs", features = ["export-json"] }
 wasm-bindgen = "0.2"
+serde = { workspace = true }
 serde_json = { workspace = true }
 js-sys = "0.3"
 

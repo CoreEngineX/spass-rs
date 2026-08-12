@@ -176,7 +176,7 @@ When Samsung ships a format we don't know yet, files route to the same default s
 4. Returns the entries plus a `BestEffortReport` for the contribution loop.
 5. If any required column is absent, returns `SpassError::UnknownVersionUnparseable(Box<BestEffortReport>)` carrying the same diagnostic so the consumer can still build a contribution URL.
 
-The `BestEffortReport` carries header column-name metadata only -- **never row data**. It exposes pre-built `subject()` / `body(source)` / `github_issue_url(source)` / `mailto_url(to, source)` helpers so consumers don't reimplement the contribution-message format. The `ReportSource` argument (`IosApp` / `WebApp` / `Cli`) stamps a closing "Sent from ..." line naming the platform; the subject and the rest of the body stay identical across platforms:
+The `BestEffortReport` carries header column-name metadata only -- **never row data**. It exposes pre-built `subject()` / `body(source)` / `github_issue_url(source)` / `mailto_url(to, source)` helpers so consumers don't reimplement the contribution-message format. The `ReportSource` argument (`IosApp` / `AndroidApp` / `WebApp` / `Cli`) stamps a closing "Sent from ..." line naming the platform; the subject and the rest of the body stay identical across platforms:
 
 ```rust
 use spass::domain::{ReportSource, VersionStatus};

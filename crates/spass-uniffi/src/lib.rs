@@ -133,12 +133,24 @@ pub struct FfiBestEffortReport {
 
 const SUPPORT_EMAIL: &str = "support@coreenginex.com";
 
+/// Which app this bridge build is inside.
+///
+/// This crate is the mobile bridge and nothing else -- it is only ever
+/// compiled for an iOS or an Android target, so the target OS *is* the
+/// report source. `spass-wasm` and `spass-cli` are separate consumers
+/// that pass their own source and never reach this constant.
+const BRIDGE_SOURCE: ReportSource = if cfg!(target_os = "android") {
+    ReportSource::AndroidApp
+} else {
+    ReportSource::IosApp
+};
+
 impl From<BestEffortReport> for FfiBestEffortReport {
     fn from(r: BestEffortReport) -> Self {
         let subject = r.subject();
-        let body = r.body(ReportSource::IosApp);
-        let github_issue_url = r.github_issue_url(ReportSource::IosApp);
-        let mailto_url = r.mailto_url(SUPPORT_EMAIL, ReportSource::IosApp);
+        let body = r.body(BRIDGE_SOURCE);
+        let github_issue_url = r.github_issue_url(BRIDGE_SOURCE);
+        let mailto_url = r.mailto_url(SUPPORT_EMAIL, BRIDGE_SOURCE);
         Self {
             sentinel: r.sentinel,
             header_line: r.header_line,

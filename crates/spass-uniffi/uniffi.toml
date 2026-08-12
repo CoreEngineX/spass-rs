@@ -1,0 +1,4 @@
+[bindings.kotlin]
+package_name = "com.coreenginex.spasscore"
+android = true
+android_cleaner = true

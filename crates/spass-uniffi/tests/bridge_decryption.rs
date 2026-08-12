@@ -261,13 +261,26 @@ fn best_effort_report_precomputes_ios_contribution_strings() {
         other => panic!("expected BestEffort, got {other:?}"),
     };
 
+    // The bridge stamps its provenance from the target OS, so this test
+    // asserts against whichever app it was compiled for. A host-target
+    // `cargo test` run takes the iOS arm, same as an iOS device build.
+    #[cfg(target_os = "android")]
+    let (phrase, encoded) = (
+        "Sent from the SPassPort Android app\n",
+        "Sent%20from%20the%20SPassPort%20Android%20app",
+    );
+    #[cfg(not(target_os = "android"))]
+    let (phrase, encoded) = (
+        "Sent from the SPassPort iOS app\n",
+        "Sent%20from%20the%20SPassPort%20iOS%20app",
+    );
+
     assert_eq!(report.sentinel, "33");
     assert!(report.subject.contains("33"));
-    assert!(report.body.ends_with("Sent from the SPassPort iOS app\n"));
-    assert!(report
-        .github_issue_url
-        .contains("Sent%20from%20the%20SPassPort%20iOS%20app"));
-    assert!(report
-        .mailto_url
-        .contains("Sent%20from%20the%20SPassPort%20iOS%20app"));
+    assert!(
+        report.body.ends_with(phrase),
+        "body did not end with {phrase:?}"
+    );
+    assert!(report.github_issue_url.contains(encoded));
+    assert!(report.mailto_url.contains(encoded));
 }

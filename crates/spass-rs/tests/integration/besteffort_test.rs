@@ -291,36 +291,104 @@ fn sentinel_32_decrypts_as_known_v32() {
     }
 }
 
+/// Decrypts `blob` and asserts it came through as a strict `Known { V32 }`
+/// with every sample entry intact. Shared by the drift cases below, each of
+/// which perturbs the wire shape in a way a future Samsung bump plausibly
+/// could.
+fn assert_known_v32(blob: &str) {
+    let outcome = production_pipeline()
+        .decrypt_string(blob, &password())
+        .unwrap();
+    assert_eq!(outcome.entries.len(), sample_entries().len());
+    assert!(
+        matches!(
+            outcome.version_status,
+            VersionStatus::Known {
+                version: SpassFormatVersion::V32
+            }
+        ),
+        "expected Known V32, got {:?}",
+        outcome.version_status
+    );
+    for (got, want) in outcome.entries.entries().iter().zip(sample_entries()) {
+        assert_eq!(got.url.as_str(), want.url);
+        assert_eq!(got.username.as_str(), want.username);
+        assert_eq!(got.password.as_str(), want.password);
+        assert_eq!(got.name.as_str(), want.name);
+    }
+}
+
 #[test]
-fn v32_with_reordered_columns_and_extra_preamble_stays_known() {
-    // The schema parser resolves columns by name and finds next_table
-    // itself, so a v32 that drifts within the family shape still parses
-    // as Known.
-    let blob_bytes = {
-        let mut columns = SpassGenerator::canonical_v31_header();
-        // Swap title ahead of origin_url.
-        let t = columns.iter().position(|c| *c == "title").unwrap();
-        let o = columns.iter().position(|c| *c == "origin_url").unwrap();
-        columns.swap(t, o);
-        SpassGenerator::new(TEST_PASSWORD)
+fn v32_with_reordered_columns_stays_known() {
+    let mut columns = SpassGenerator::canonical_v31_header();
+    let t = columns.iter().position(|c| *c == "title").unwrap();
+    let o = columns.iter().position(|c| *c == "origin_url").unwrap();
+    columns.swap(t, o);
+
+    assert_known_v32(
+        &SpassGenerator::new(TEST_PASSWORD)
             .with_version(SpassFormatVersion::V32)
             .with_v31_header(columns)
             .entries(sample_entries())
-            .generate()
-    };
-    let outcome = production_pipeline()
-        .decrypt_string(&blob_bytes, &password())
-        .unwrap();
-    assert_eq!(outcome.entries.len(), sample_entries().len());
-    assert!(matches!(
-        outcome.version_status,
-        VersionStatus::Known {
-            version: SpassFormatVersion::V32
+            .generate(),
+    );
+}
+
+#[test]
+fn v32_with_extra_preamble_lines_stays_known() {
+    // The marker moves off index 3. The schema parser searches for
+    // `next_table` instead of pinning a line number, so this must still
+    // parse strictly -- the v30 parser, which does pin the index, is the
+    // only one that cares where the marker sits.
+    assert_known_v32(
+        &SpassGenerator::new(TEST_PASSWORD)
+            .with_version(SpassFormatVersion::V32)
+            .with_extra_preamble_lines(2)
+            .entries(sample_entries())
+            .generate(),
+    );
+}
+
+#[test]
+fn v32_with_an_extra_column_stays_known() {
+    // The likeliest real v33: Samsung appends a column we don't project.
+    // Columns resolve by name, so the row simply gets wider.
+    let mut columns = SpassGenerator::canonical_v31_header();
+    columns.push("passkey_blob");
+
+    assert_known_v32(
+        &SpassGenerator::new(TEST_PASSWORD)
+            .with_version(SpassFormatVersion::V32)
+            .with_v31_header(columns)
+            .entries(sample_entries())
+            .generate(),
+    );
+}
+
+#[test]
+fn v32_missing_a_required_column_reports_unparseable() {
+    // A known sentinel does NOT buy leniency about the columns we project:
+    // drop one and the contribution report fires, same as an unknown version.
+    let columns: Vec<&'static str> = SpassGenerator::canonical_v31_header()
+        .into_iter()
+        .filter(|c| *c != "username_value")
+        .collect();
+    let blob = SpassGenerator::new(TEST_PASSWORD)
+        .with_version(SpassFormatVersion::V32)
+        .with_v31_header(columns)
+        .entries(sample_entries())
+        .generate();
+
+    let err = production_pipeline()
+        .decrypt_string(&blob, &password())
+        .unwrap_err();
+    match err {
+        SpassError::UnknownVersionUnparseable(report) => {
+            assert_eq!(report.sentinel, "32");
+            assert_eq!(report.missing_required_columns, vec!["username_value"]);
         }
-    ));
-    let e = &outcome.entries.entries()[0];
-    assert_eq!(e.url.as_str(), sample_entries()[0].url);
-    assert_eq!(e.name.as_str(), sample_entries()[0].name);
+        other => panic!("expected UnknownVersionUnparseable, got {other:?}"),
+    }
 }
 
 #[test]

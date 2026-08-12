@@ -114,6 +114,11 @@ pub struct SpassGenerator {
     /// exercising the unknown-sentinel best-effort path (e.g. `"33"`).
     /// v30 emission ignores this.
     sentinel_override: Option<String>,
+    /// Extra metadata lines injected between the sentinel and `next_table`,
+    /// pushing the marker off its usual index. Exercises the schema parser's
+    /// claim that it locates `next_table` by search rather than by a pinned
+    /// line number. v30 emission ignores this.
+    extra_preamble_lines: usize,
     /// Overrides the v31 header column list. When set, the emitted file's
     /// header is exactly the strings in this list (semicolon-joined) and
     /// value emission writes each entry's `url` / `username` / `password` /
@@ -138,6 +143,7 @@ impl SpassGenerator {
             iv: None,
             version: crate::format::SpassFormatVersion::V30,
             sentinel_override: None,
+            extra_preamble_lines: 0,
             v31_header_override: None,
         }
     }
@@ -155,6 +161,14 @@ impl SpassGenerator {
     #[must_use]
     pub fn with_sentinel(mut self, sentinel: impl Into<String>) -> Self {
         self.sentinel_override = Some(sentinel.into());
+        self
+    }
+
+    /// Injects `n` extra metadata lines before the `next_table` marker,
+    /// simulating a Samsung format bump that grows the preamble.
+    #[must_use]
+    pub fn with_extra_preamble_lines(mut self, n: usize) -> Self {
+        self.extra_preamble_lines = n;
         self
     }
 
@@ -336,7 +350,10 @@ impl SpassGenerator {
         out.push_str("true;false;false;false\n");
         // Line 3: extra metadata bool (new in v31).
         out.push_str("false\n");
-        // Line 4: section separator.
+        for _ in 0..self.extra_preamble_lines {
+            out.push_str("false\n");
+        }
+        // Section separator.
         out.push_str("next_table\n");
         // Line 5: header.
         out.push_str(&header_cols.join(";"));
@@ -1468,8 +1485,35 @@ mod tests {
             iv: Some([0x02; 16]),
             version: crate::format::SpassFormatVersion::V30,
             sentinel_override: None,
+            extra_preamble_lines: 0,
             v31_header_override: None,
         }
+    }
+
+    #[test]
+    fn extra_preamble_lines_move_the_marker_off_its_usual_index() {
+        // Guards the integration tests that rely on this perturbation: if
+        // the builder silently stopped emitting the extra lines, those
+        // tests would pass vacuously.
+        let plain = generator()
+            .with_version(crate::format::SpassFormatVersion::V32)
+            .build_plaintext();
+        let baseline = plain
+            .lines()
+            .position(|l| l.trim() == "next_table")
+            .expect("baseline marker");
+        assert_eq!(baseline, 3, "v32 baseline marker index");
+
+        let shifted = generator()
+            .with_version(crate::format::SpassFormatVersion::V32)
+            .with_extra_preamble_lines(2)
+            .build_plaintext();
+        let moved = shifted
+            .lines()
+            .position(|l| l.trim() == "next_table")
+            .expect("shifted marker");
+        assert_eq!(moved, baseline + 2);
+        assert!(shifted.starts_with("32\n"));
     }
 
     fn generate_low_iter(gen: &SpassGenerator) -> String {

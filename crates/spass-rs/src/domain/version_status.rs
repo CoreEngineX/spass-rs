@@ -56,6 +56,8 @@ pub struct BestEffortReport {
 pub enum ReportSource {
     /// "Sent from the `SPassPort` iOS app" -- used by `spass-uniffi`.
     IosApp,
+    /// "Sent from the `SPassPort` Android app" -- used by `spass-uniffi`.
+    AndroidApp,
     /// "Sent from the `SPassPort` web app" -- used by `spass-wasm`.
     WebApp,
     /// "Sent from the spass CLI" -- used by `spass-cli`.
@@ -66,6 +68,7 @@ impl ReportSource {
     fn phrase(self) -> &'static str {
         match self {
             Self::IosApp => "the SPassPort iOS app",
+            Self::AndroidApp => "the SPassPort Android app",
             Self::WebApp => "the SPassPort web app",
             Self::Cli => "the spass CLI",
         }
@@ -320,11 +323,34 @@ mod tests {
             .body(ReportSource::IosApp)
             .ends_with("Sent from the SPassPort iOS app\n"));
         assert!(r
+            .body(ReportSource::AndroidApp)
+            .ends_with("Sent from the SPassPort Android app\n"));
+        assert!(r
             .body(ReportSource::WebApp)
             .ends_with("Sent from the SPassPort web app\n"));
         assert!(r
             .body(ReportSource::Cli)
             .ends_with("Sent from the spass CLI\n"));
+    }
+
+    #[test]
+    fn every_source_has_a_distinct_phrase() {
+        let r = fake_report("32", vec![]);
+        let bodies: Vec<String> = [
+            ReportSource::IosApp,
+            ReportSource::AndroidApp,
+            ReportSource::WebApp,
+            ReportSource::Cli,
+        ]
+        .into_iter()
+        .map(|s| r.body(s))
+        .collect();
+
+        for (i, a) in bodies.iter().enumerate() {
+            for b in bodies.iter().skip(i + 1) {
+                assert_ne!(a, b, "two sources produced an identical body");
+            }
+        }
     }
 
     #[test]

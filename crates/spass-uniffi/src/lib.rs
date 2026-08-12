@@ -43,10 +43,13 @@ pub enum SpassFfiError {
     ///
     /// Covers bad Base64, missing `next_table` marker, malformed CSV, and
     /// other structural problems detected before the crypto step.
-    #[error("invalid file format: {message}")]
+    // `detail`, not `message`: uniffi's Kotlin codegen emits both a
+    // constructor `val message` and an `override val message` for a field of
+    // that name, which collides with `Throwable.message` and does not compile.
+    #[error("invalid file format: {detail}")]
     InvalidFormat {
         /// Human-readable detail; safe to surface to the user.
-        message: String,
+        detail: String,
     },
 
     /// File's version sentinel wasn't recognised and the schema parser
@@ -61,10 +64,10 @@ pub enum SpassFfiError {
 
     /// Anything else - I/O failure, configuration mismatch, or a future error
     /// variant added to `spass::SpassError` after this bridge was last updated.
-    #[error("internal error: {message}")]
+    #[error("internal error: {detail}")]
     Internal {
         /// Human-readable detail; safe to log but may not be user-actionable.
-        message: String,
+        detail: String,
     },
 }
 
@@ -73,21 +76,21 @@ impl From<spass::SpassError> for SpassFfiError {
         match err {
             spass::SpassError::Decryption(_) => Self::WrongPassword,
             spass::SpassError::Parsing(s) | spass::SpassError::Validation(s) => {
-                Self::InvalidFormat { message: s }
+                Self::InvalidFormat { detail: s }
             }
             spass::SpassError::Csv(e) => Self::InvalidFormat {
-                message: e.to_string(),
+                detail: e.to_string(),
             },
             spass::SpassError::Io(e) => Self::Internal {
-                message: e.to_string(),
+                detail: e.to_string(),
             },
-            spass::SpassError::Config(s) => Self::Internal { message: s },
+            spass::SpassError::Config(s) => Self::Internal { detail: s },
             spass::SpassError::UnknownVersionUnparseable(report) => Self::UnknownVersion {
                 report: FfiBestEffortReport::from(*report),
             },
             // Required because spass::SpassError is #[non_exhaustive].
             _ => Self::Internal {
-                message: "unknown error".into(),
+                detail: "unknown error".into(),
             },
         }
     }
@@ -281,7 +284,7 @@ pub fn decrypt(file_text: String, password: String) -> Result<FfiDecryptOutcome,
 
     let entries_json =
         serde_json::to_string(&outcome.entries).map_err(|e| SpassFfiError::Internal {
-            message: e.to_string(),
+            detail: e.to_string(),
         })?;
 
     Ok(FfiDecryptOutcome {

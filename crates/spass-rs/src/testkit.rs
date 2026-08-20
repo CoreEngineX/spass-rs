@@ -548,7 +548,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_website_fixtures -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes v30 files into the repo"]
     fn generate_website_fixtures() {
         std::fs::create_dir_all(FIXTURE_DIR_V30).unwrap();
 
@@ -912,7 +912,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_website_fixtures_v31 -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes v31 files into the repo"]
     fn generate_website_fixtures_v31() {
         use crate::format::SpassFormatVersion;
 
@@ -967,7 +967,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes a best-effort file into the repo"]
     fn generate_besteffort_fixture() {
         use crate::format::SpassFormatVersion;
 
@@ -1032,7 +1032,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_1m_fixture -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes a multi-hundred-MB v30 file"]
     fn generate_1m_fixture() {
         use std::time::Instant;
 
@@ -1141,7 +1141,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_1m_fixture_v31 -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes a multi-hundred-MB v31 file"]
     fn generate_1m_fixture_v31() {
         use crate::format::SpassFormatVersion;
         use std::time::Instant;
@@ -1218,7 +1218,7 @@ mod tests {
     /// Run with:
     ///   cargo test -p spass generate_demo_fixture -- --nocapture --ignored
     #[test]
-    #[ignore]
+    #[ignore = "fixture generator, not a test: writes a demo file into the repo"]
     fn generate_demo_fixture() {
         std::fs::create_dir_all(FIXTURE_DIR_V30).unwrap();
 

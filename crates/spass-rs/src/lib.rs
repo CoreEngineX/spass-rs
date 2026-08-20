@@ -1,7 +1,10 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
-#![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
+// Blanket `clippy::pedantic` is deliberately NOT set here. The gated subset
+// lives in scripts/ci-check.sh as individual -W flags, matching what
+// `cex ci-check --rust` enforces org-wide; a crate-level blanket turns on the
+// advisory lints too, and does so regardless of the flags the gate passes.
 
 //! Samsung Pass (`SPass`) decryption library.
 //!

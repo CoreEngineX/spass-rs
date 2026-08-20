@@ -48,7 +48,27 @@ fi
 
 # fmt must run first (already done above), but the check is fast
 run_bg "fmt"     cargo fmt --all -- --check
-run_bg "clippy"  cargo clippy --workspace --all-features -- -D warnings
+# Mirrors `cex ci-check --rust` exactly: --all-targets (so test code is linted
+# too) plus the twelve gated pedantic lints it enforces org-wide. Keep this list
+# in sync with cex rather than adding to it -- a blanket clippy::pedantic drags
+# in the advisory lints, which have real exceptions and only produce #[allow]
+# noise. Run those as a hint with `cargo clippy --workspace --all-features -- -W
+# clippy::pedantic`.
+clippy_gated=(
+    -W clippy::uninlined_format_args
+    -W clippy::map_unwrap_or
+    -W clippy::redundant_closure_for_method_calls
+    -W clippy::format_push_string
+    -W clippy::cast_lossless
+    -W clippy::unreadable_literal
+    -W clippy::ignored_unit_patterns
+    -W clippy::implicit_clone
+    -W clippy::explicit_iter_loop
+    -W clippy::missing_panics_doc
+    -W clippy::needless_pass_by_value
+    -W clippy::single_match_else
+)
+run_bg "clippy"  cargo clippy --workspace --all-features --all-targets -- -D warnings "${clippy_gated[@]}"
 run_bg "test"    cargo test --workspace --all-features "${unit_test_args[@]}"
 run_bg "doctest" cargo test --workspace --all-features --doc
 run_bg "doc"     cargo doc --workspace --all-features --no-deps

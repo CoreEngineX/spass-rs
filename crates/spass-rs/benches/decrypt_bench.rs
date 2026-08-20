@@ -41,9 +41,9 @@ fn bench_key_derivation_different_iterations(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("key_derivation_iterations");
 
-    for iterations in [10_000, 50_000, 70_000, 100_000].iter() {
+    for iterations in &[10_000, 50_000, 70_000, 100_000] {
         let kd = KeyDerivation::new(*iterations);
-        group.bench_with_input(format!("{}_iterations", iterations), iterations, |b, _| {
+        group.bench_with_input(format!("{iterations}_iterations"), iterations, |b, _| {
             b.iter(|| {
                 let _ = kd.derive_key(black_box(&password), black_box(salt));
             });

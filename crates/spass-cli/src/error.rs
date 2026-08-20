@@ -43,7 +43,7 @@ impl From<SpassError> for CliError {
             SpassError::Validation(msg) => CliError::Validation(msg),
             SpassError::Config(msg) => CliError::Config(msg),
             SpassError::Csv(e) => CliError::InvalidFormat(e.to_string()),
-            _ => CliError::Other(format!("Unexpected error: {}", err)),
+            _ => CliError::Other(format!("Unexpected error: {err}")),
         }
     }
 }

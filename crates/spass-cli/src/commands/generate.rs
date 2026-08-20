@@ -140,9 +140,7 @@ impl GenerateCommand {
         gen.write_to_file(&self.output);
         let enc_elapsed = enc_start.elapsed();
 
-        let size_mb = std::fs::metadata(&self.output)
-            .map(|m| m.len() as f64 / 1_048_576.0)
-            .unwrap_or(0.0);
+        let size_mb = std::fs::metadata(&self.output).map_or(0.0, |m| m.len() as f64 / 1_048_576.0);
 
         println!("  {} encrypted in {enc_elapsed:.2?}", "Done".green().bold());
         println!();

@@ -90,7 +90,7 @@ impl std::str::FromStr for OutputFormat {
         match s.to_lowercase().as_str() {
             "csv" => Ok(OutputFormat::Csv),
             "json" => Ok(OutputFormat::Json),
-            _ => Err(format!("Invalid format: {}. Valid formats: csv, json", s)),
+            _ => Err(format!("Invalid format: {s}. Valid formats: csv, json")),
         }
     }
 }

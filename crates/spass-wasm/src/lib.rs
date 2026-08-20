@@ -33,7 +33,7 @@ pub fn decrypt(file_text: &str, password: &str) -> Result<JsValue, JsValue> {
 
     let outcome = pipeline
         .decrypt_string(file_text, &pw)
-        .map_err(js_err_for)?;
+        .map_err(|e| js_err_for(&e))?;
 
     let version_status = match &outcome.version_status {
         VersionStatus::Known { version } => serde_json::json!({
@@ -88,8 +88,8 @@ impl<'a> EnrichedReport<'a> {
 /// `UnknownVersionUnparseable` is the load-bearing case: the JS catch handler
 /// needs the diagnostic report to render the contribution prompt, so we
 /// serialise it instead of falling back to the bare error message.
-fn js_err_for(err: SpassError) -> JsValue {
-    if let SpassError::UnknownVersionUnparseable(ref report) = err {
+fn js_err_for(err: &SpassError) -> JsValue {
+    if let SpassError::UnknownVersionUnparseable(report) = err {
         if let Ok(json) = serde_json::to_string(&serde_json::json!({
             "kind": "unknown_version_unparseable",
             "report": EnrichedReport::new(report),

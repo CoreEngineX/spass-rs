@@ -1,0 +1,9 @@
+# Regenerable output. Everything ignored here has its generator committed beside it.
+version = 1
+
+globs = [
+  # ~300 MB of 1M-row fixtures, rebuilt by
+  # `cargo test generate_website_fixtures{,_v31}` (crates/spass-rs/src/testkit.rs).
+  # The small fixtures next to them are committed and stay in git.
+  "gen-test/*/test05-1m.spass",
+]

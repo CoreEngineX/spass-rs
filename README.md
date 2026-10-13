@@ -39,7 +39,7 @@ All three boundary crates (`spass-cli`, `spass-uniffi`, `spass-wasm`) depend on 
 
 ```toml
 [dependencies]
-spass = "0.2"
+spass = "0.3"
 ```
 
 ```rust

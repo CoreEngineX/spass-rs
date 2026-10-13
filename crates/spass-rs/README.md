@@ -10,7 +10,7 @@ Full docs and design rationale: [github.com/CoreEngineX/spass-rs](https://github
 
 ```toml
 [dependencies]
-spass = "0.2"
+spass = "0.3"
 ```
 
 ```rust

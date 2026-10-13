@@ -2,7 +2,7 @@
 name = "spass-uniffi"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.87"
 authors.workspace = true
 license.workspace = true
 publish = false

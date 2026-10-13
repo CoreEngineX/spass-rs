@@ -142,7 +142,15 @@ The exported `decrypt(file_text, password)` returns a JSON string of shape:
 
 ```json
 {
-  "entries": [{ "url": "...", "username": "...", "password": "...", "name": "...", "note": "..." }],
+  "entries": [
+    {
+      "url": "...",
+      "username": "...",
+      "password": "...",
+      "name": "...",
+      "note": "..."
+    }
+  ],
   "version_status": { "kind": "known", "version": "V30" }
 }
 ```
@@ -153,12 +161,12 @@ There is no hardware crypto path in wasm; throughput is lower than native but we
 
 ## Format support
 
-| Version | Status | Line-1 sentinel (in decrypted plaintext) |
-|---|---|---|
-| V3.0 | Known -- dedicated parser | `spass_export_v1` -- the literal Samsung writes |
-| V3.1 | Known -- default schema parser | `31` -- numeric |
-| V3.2 | Known -- default schema parser (same layout as v31) | `32` -- numeric |
-| Future / unknown | Best-effort -- same schema parser | anything else (e.g. `33`) -- see below |
+| Version          | Status                                              | Line-1 sentinel (in decrypted plaintext)        |
+| ---------------- | --------------------------------------------------- | ----------------------------------------------- |
+| V3.0             | Known -- dedicated parser                           | `spass_export_v1` -- the literal Samsung writes |
+| V3.1             | Known -- default schema parser                      | `31` -- numeric                                 |
+| V3.2             | Known -- default schema parser (same layout as v31) | `32` -- numeric                                 |
+| Future / unknown | Best-effort -- same schema parser                   | anything else (e.g. `33`) -- see below          |
 
 `SpassFormatVersion::detect()` in `crates/spass-rs/src/format/version.rs` reads the first newline-terminated line of decrypted plaintext and dispatches by wire family: v30 has its own parser; every 35-column version -- known or unknown -- goes through the one default schema parser at `crates/spass-rs/src/parser/schema.rs`.
 

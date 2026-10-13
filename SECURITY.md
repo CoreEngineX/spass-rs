@@ -5,6 +5,7 @@
 Do not open a public GitHub issue for security vulnerabilities.
 
 Email **security@coreengine-x.com** with:
+
 - A description of the vulnerability
 - Steps to reproduce
 - Impact assessment if known

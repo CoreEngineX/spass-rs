@@ -1,6 +1,5 @@
 use aes::Aes256;
-use cbc::cipher::generic_array::GenericArray;
-use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use cbc::Decryptor;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
@@ -46,12 +45,9 @@ impl CipherEngine {
     ) -> SpassResult<DecryptedData> {
         let mut buffer = ciphertext.as_bytes().to_vec();
 
-        let key_array = GenericArray::from_slice(key.as_bytes());
-        let iv_array = GenericArray::from_slice(iv.as_bytes());
+        let decryptor = Aes256CbcDec::new(key.as_bytes().into(), iv.as_bytes().into());
 
-        let decryptor = Aes256CbcDec::new(key_array, iv_array);
-
-        let result = decryptor.decrypt_padded_mut::<Pkcs7>(&mut buffer);
+        let result = decryptor.decrypt_padded::<Pkcs7>(&mut buffer);
 
         if let Ok(plaintext) = result {
             Ok(DecryptedData::new(plaintext.to_vec()))
@@ -90,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_with_correct_key() {
-        use cbc::cipher::BlockEncryptMut;
+        use cbc::cipher::BlockModeEncrypt;
         use cbc::Encryptor;
 
         let cipher = CipherEngine::new();
@@ -106,12 +102,9 @@ mod tests {
         let decoded_for_key = DecodedFile::builder().build();
         let key = kd.derive_key(&password, decoded_for_key.salt()).unwrap();
 
-        let key_array = GenericArray::from_slice(key.as_bytes());
-        let iv_array = GenericArray::from_slice(&iv_bytes);
-
-        let encryptor = Encryptor::<Aes256>::new(key_array, iv_array);
+        let encryptor = Encryptor::<Aes256>::new(key.as_bytes().into(), (&iv_bytes).into());
         let ciphertext_len = encryptor
-            .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
+            .encrypt_padded::<Pkcs7>(&mut buffer, plaintext.len())
             .unwrap()
             .len();
 

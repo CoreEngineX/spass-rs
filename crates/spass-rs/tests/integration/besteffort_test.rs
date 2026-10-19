@@ -896,8 +896,7 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
 
     // Hand-encrypt with the same dance the testkit uses internally.
     use aes::Aes256;
-    use cbc::cipher::generic_array::GenericArray;
-    use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    use cbc::cipher::{block_padding::Pkcs7, BlockModeEncrypt, KeyIvInit};
     use cbc::Encryptor;
     use hmac::Hmac;
     use pbkdf2::pbkdf2;
@@ -909,12 +908,9 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
     pbkdf2::<Hmac<Sha256>>(TEST_PASSWORD.as_bytes(), &salt, 70_000, &mut key).unwrap();
     let mut buffer = plaintext.as_bytes().to_vec();
     buffer.resize(plaintext.len() + 16, 0);
-    let encryptor = Encryptor::<Aes256>::new(
-        GenericArray::from_slice(&key),
-        GenericArray::from_slice(&iv),
-    );
+    let encryptor = Encryptor::<Aes256>::new((&key).into(), (&iv).into());
     let len = encryptor
-        .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
+        .encrypt_padded::<Pkcs7>(&mut buffer, plaintext.len())
         .unwrap()
         .len();
     buffer.truncate(len);

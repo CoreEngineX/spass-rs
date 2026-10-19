@@ -44,7 +44,7 @@ impl CryptoValidator {
             ));
         }
 
-        if ciphertext.as_bytes().len() % 16 != 0 {
+        if !ciphertext.as_bytes().len().is_multiple_of(16) {
             return Err(SpassError::Validation(
                 "Encrypted data size must be multiple of 16 bytes".to_string(),
             ));

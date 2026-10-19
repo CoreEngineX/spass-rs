@@ -13,7 +13,8 @@
 //!
 //! # Security
 //!
-//! - All sensitive data is automatically zeroized on drop
+//! - The password, the derived key, the decrypted bytes and the AES and CBC cipher state are
+//!   zeroized on drop
 //! - Constant-time operations prevent timing attacks
 //! - No passwords are logged or exposed in error messages
 //!

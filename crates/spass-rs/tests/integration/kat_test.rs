@@ -1,12 +1,11 @@
-//! Decryption pinned to answers that do not come from this crate's own encryptor.
+//! Properties of the crypto dependencies that this crate's own round trips cannot see.
 //!
 //! The `tests/kat/*.plain` files are `openssl enc -d -aes-256-cbc` output for the committed
 //! fixtures they are named after, keyed by Python's `hashlib.pbkdf2_hmac`.
 
 use aes::Aes256;
 use cbc::cipher::block_padding::NoPadding;
-use cbc::cipher::generic_array::GenericArray;
-use cbc::cipher::{BlockDecryptMut, KeyIvInit};
+use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
 use cbc::Decryptor;
 use hex::FromHex;
 use hmac::Hmac;
@@ -15,6 +14,7 @@ use sha2::Sha256;
 use spass::crypto::{CipherEngine, KeyDerivation};
 use spass::domain::EntryPassword;
 use spass::format::SpassDecoder;
+use zeroize::ZeroizeOnDrop;
 
 const FIXTURE_PASSWORD: &str = "TestPassword123";
 
@@ -104,12 +104,9 @@ fn aes_256_cbc_matches_sp_800_38a() {
         "39f23369a9d9bacfa530e26304231461b2eb05e2c39be9fcda6c19078c6a9d1b"
     ))
     .expect("ciphertext hex");
-    let plaintext = Decryptor::<Aes256>::new(
-        GenericArray::from_slice(&key),
-        GenericArray::from_slice(&iv),
-    )
-    .decrypt_padded_mut::<NoPadding>(&mut buffer)
-    .expect("four whole blocks");
+    let plaintext = Decryptor::<Aes256>::new((&key).into(), (&iv).into())
+        .decrypt_padded::<NoPadding>(&mut buffer)
+        .expect("four whole blocks");
     assert_eq!(
         hex::encode(plaintext),
         concat!(
@@ -117,4 +114,17 @@ fn aes_256_cbc_matches_sp_800_38a() {
             "30c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710"
         )
     );
+}
+
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn aes_runs_on_the_armv8_instructions() {
+    assert!(aes::hardware_accelerated());
+}
+
+#[test]
+fn cipher_state_zeroizes_on_drop() {
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<Aes256>();
+    assert_zeroize_on_drop::<Decryptor<Aes256>>();
 }

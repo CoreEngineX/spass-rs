@@ -19,8 +19,7 @@
 
 use aes::Aes256;
 use base64::{engine::general_purpose, Engine};
-use cbc::cipher::generic_array::GenericArray;
-use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+use cbc::cipher::{block_padding::Pkcs7, BlockModeEncrypt, KeyIvInit};
 use cbc::Encryptor;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
@@ -447,16 +446,13 @@ impl SpassGenerator {
         pbkdf2::<Hmac<Sha256>>(password.as_bytes(), salt, iterations, &mut key)
             .expect("PBKDF2 key derivation failed");
 
-        let key_array = GenericArray::from_slice(&key);
-        let iv_array = GenericArray::from_slice(iv);
-
         // Allocate buffer: plaintext + one full block for padding headroom.
         let mut buffer = plaintext.to_vec();
         buffer.resize(plaintext.len() + 16, 0);
 
-        let encryptor = Encryptor::<Aes256>::new(key_array, iv_array);
+        let encryptor = Encryptor::<Aes256>::new((&key).into(), iv.into());
         let ciphertext_len = encryptor
-            .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
+            .encrypt_padded::<Pkcs7>(&mut buffer, plaintext.len())
             .expect("AES-CBC encryption failed")
             .len();
 

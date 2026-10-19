@@ -16,9 +16,9 @@ Samsung Pass only exports passwords as encrypted `.spass` files that restore on 
 - CSV and JSON export
 - Interactive CLI with password prompting, progress bars, and coloured output
 - File inspection -- view `.spass` structure without decrypting
-- Sensitive data zeroized on drop
+- The password, the derived key, the decrypted bytes and the cipher state zeroized on drop (see Security)
 - Constant-time error handling to prevent timing side-channels
-- Hardware AES + SHA-2 acceleration auto-detected on host builds (see Hardware crypto below for cross-compile guidance)
+- Hardware AES and SHA-256 detected at runtime on ARMv8 and x86, with no build flags (see Hardware crypto below)
 - CI: fmt, clippy, tests, doctests, doc, and `cargo audit` on every push
 
 ## Workspace layout
@@ -119,7 +119,7 @@ cargo build -p spass-uniffi --release \
   --target aarch64-apple-ios-sim
 ```
 
-For shipping to a real iOS app you'll want a multi-arch `.xcframework` covering `aarch64-apple-ios` (device) and `aarch64-apple-ios-sim` (simulator) -- the standard UniFFI build flow handles that. Make sure to set the hardware crypto flags before building for iOS (see below).
+For shipping to a real iOS app you'll want a multi-arch `.xcframework` covering `aarch64-apple-ios` (device) and `aarch64-apple-ios-sim` (simulator) -- the standard UniFFI build flow handles that. Do not set crypto target-feature flags (see Hardware crypto below).
 
 The bindings return an `FfiDecryptOutcome` record carrying:
 
@@ -201,19 +201,21 @@ See [`spass-docs/rfc/012-best-effort-fallback.md`](https://github.com/CoreEngine
 
 ## Hardware crypto
 
-`spass-core` uses the `aes` and `sha2` crates, both of which dispatch to hardware instructions when available. The host (`cargo build` on M-series Macs or modern Intel/AMD) auto-detects this; **cross-compile targets do not**.
+`spass-core` uses the `aes` and `sha2` crates, which pick their backend at runtime: the ARMv8 AES and SHA-256 instructions on arm64 (iOS, Android, Apple Silicon Macs), and AES-NI and SHA-NI on x86. No target needs `RUSTFLAGS`.
 
-For iOS / Apple-Silicon targets, set:
+**Do not pass `-C target-feature=+aes,+sha2`.** With those flags the crates assume the instructions instead of detecting them. ARM's crypto extension is optional, so an Android build made that way crashes on a CPU without it.
+
+To confirm a built library uses the hardware path, count its AES instructions; symbol names do not show it:
 
 ```bash
-RUSTFLAGS="-C target-feature=+aes,+sha2,+neon"
+"$(rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/llvm-objdump" -d --no-show-raw-insn libspass_uniffi.a | grep -c -w aesd
 ```
 
-before building. Decrypt throughput on a 1M-entry fixture is roughly **5×** faster with the flags set than without. There is no equivalent for WebAssembly; `spass-wasm` runs pure-software AES + SHA-2.
+There is no hardware path in WebAssembly; `spass-wasm` runs the constant-time software AES and SHA-256.
 
 ## Security
 
-- Sensitive types (`EntryPassword`, `DerivedKey`) zeroize on drop
+- `EntryPassword`, `DerivedKey` and `DecryptedData` zeroize on drop, and so do the AES round keys and the CBC state (the `aes` and `cbc` `zeroize` features). Not wiped: the HMAC and PBKDF2 intermediate state, and the scratch buffer the decrypt runs in
 - Constant-time 100 µs sleep on decryption failure prevents timing oracles
 - Passwords are never logged or included in error messages
 - CBC mode has no authentication tag -- a property of the `.spass` format itself, not a design choice here

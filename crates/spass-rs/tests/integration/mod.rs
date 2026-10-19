@@ -2,3 +2,4 @@
 
 mod besteffort_test;
 mod decrypt_test;
+mod kat_test;

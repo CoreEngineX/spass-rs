@@ -1,9 +1,10 @@
 //! Benchmarks for decryption operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use spass::crypto::{KeyDerivation, PBKDF2_ITERATIONS};
 use spass::domain::EntryPassword;
 use spass::format::SpassDecoder;
+use std::hint::black_box;
 
 fn bench_key_derivation(c: &mut Criterion) {
     let kd = KeyDerivation::new(PBKDF2_ITERATIONS);

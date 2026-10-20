@@ -4,9 +4,9 @@
 //! fixtures they are named after, keyed by Python's `hashlib.pbkdf2_hmac`.
 
 use aes::Aes256;
+use cbc::Decryptor;
 use cbc::cipher::block_padding::NoPadding;
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
-use cbc::Decryptor;
 use hex::FromHex;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;

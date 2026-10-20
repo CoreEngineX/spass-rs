@@ -319,18 +319,22 @@ mod tests {
     #[test]
     fn body_ends_with_provenance_line_per_source() {
         let r = fake_report("32", vec![]);
-        assert!(r
-            .body(ReportSource::IosApp)
-            .ends_with("Sent from the SPassPort iOS app\n"));
-        assert!(r
-            .body(ReportSource::AndroidApp)
-            .ends_with("Sent from the SPassPort Android app\n"));
-        assert!(r
-            .body(ReportSource::WebApp)
-            .ends_with("Sent from the SPassPort web app\n"));
-        assert!(r
-            .body(ReportSource::Cli)
-            .ends_with("Sent from the spass CLI\n"));
+        assert!(
+            r.body(ReportSource::IosApp)
+                .ends_with("Sent from the SPassPort iOS app\n")
+        );
+        assert!(
+            r.body(ReportSource::AndroidApp)
+                .ends_with("Sent from the SPassPort Android app\n")
+        );
+        assert!(
+            r.body(ReportSource::WebApp)
+                .ends_with("Sent from the SPassPort web app\n")
+        );
+        assert!(
+            r.body(ReportSource::Cli)
+                .ends_with("Sent from the spass CLI\n")
+        );
     }
 
     #[test]
@@ -356,9 +360,10 @@ mod tests {
     #[test]
     fn failure_variant_body_also_carries_provenance_line() {
         let r = fake_report("32", vec!["password_value"]);
-        assert!(r
-            .body(ReportSource::IosApp)
-            .ends_with("Sent from the SPassPort iOS app\n"));
+        assert!(
+            r.body(ReportSource::IosApp)
+                .ends_with("Sent from the SPassPort iOS app\n")
+        );
     }
 
     #[test]

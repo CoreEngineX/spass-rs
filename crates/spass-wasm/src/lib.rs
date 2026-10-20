@@ -1,6 +1,6 @@
+use spass::SpassError;
 use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::pipeline::DecryptionPipeline;
-use spass::SpassError;
 use wasm_bindgen::prelude::*;
 
 /// Decrypt a `.spass` file's text content. Returns a JSON object as a string:

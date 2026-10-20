@@ -16,7 +16,7 @@
 //! `DecodedFile` the accessors can't panic on the contents, only on
 //! the buffer length, which `new` already enforced.
 
-use base64::{engine::general_purpose, Engine};
+use base64::{Engine, engine::general_purpose};
 use std::ops::{Deref, RangeInclusive};
 use std::path::Path;
 
@@ -261,7 +261,7 @@ impl SpassDecoder {
             Some(ext) if ext != "spass" => {
                 return Err(SpassError::Config(
                     "Expected .spass file extension".to_string(),
-                ))
+                ));
             }
             None => return Err(SpassError::Config("File has no extension".to_string())),
             Some(_) => {}

@@ -501,15 +501,21 @@ fn lenient_handles_extra_columns_appended_to_canonical() {
         .unwrap();
     assert_eq!(outcome.entries.len(), 3);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
-        assert!(report
-            .unknown_columns
-            .contains(&"brand_new_2fa_method".to_string()));
-        assert!(report
-            .unknown_columns
-            .contains(&"brand_new_biometric_id".to_string()));
-        assert!(report
-            .unknown_columns
-            .contains(&"brand_new_recovery_token".to_string()));
+        assert!(
+            report
+                .unknown_columns
+                .contains(&"brand_new_2fa_method".to_string())
+        );
+        assert!(
+            report
+                .unknown_columns
+                .contains(&"brand_new_biometric_id".to_string())
+        );
+        assert!(
+            report
+                .unknown_columns
+                .contains(&"brand_new_recovery_token".to_string())
+        );
         // 30 originally-unknown + 3 new = 33 total
         assert_eq!(report.unknown_columns.len(), 33);
     } else {
@@ -874,7 +880,7 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
     // boundary by searching for the literal `next_table` string. This test
     // confirms that skip by constructing a file whose `next_table` lives
     // somewhere that NEITHER strict path would accept: line 5.
-    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 
     let canonical_header = SpassGenerator::canonical_v31_header().join(";");
     let row = {
@@ -896,8 +902,8 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
 
     // Hand-encrypt with the same dance the testkit uses internally.
     use aes::Aes256;
-    use cbc::cipher::{block_padding::Pkcs7, BlockModeEncrypt, KeyIvInit};
     use cbc::Encryptor;
+    use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
     use hmac::Hmac;
     use pbkdf2::pbkdf2;
     use sha2::Sha256;

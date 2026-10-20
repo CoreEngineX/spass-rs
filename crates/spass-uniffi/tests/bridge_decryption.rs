@@ -11,7 +11,7 @@
 use serde_json::Value;
 use spass::format::SpassFormatVersion;
 use spass::testkit::{SpassGenerator, TestEntry};
-use spass_uniffi::{decrypt, FfiVersionStatus, SpassFfiError};
+use spass_uniffi::{FfiVersionStatus, SpassFfiError, decrypt};
 
 const TEST_PASSWORD: &str = "TestPassword123";
 

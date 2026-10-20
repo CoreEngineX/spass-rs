@@ -222,10 +222,12 @@ mod tests {
 
         let result = parser.parse(data);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No password entries found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No password entries found")
+        );
     }
 
     #[test]
@@ -235,10 +237,12 @@ mod tests {
 
         let result = parser.parse(data);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid CSV header"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid CSV header")
+        );
     }
 
     #[test]

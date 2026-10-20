@@ -23,7 +23,7 @@
 //!
 //! [`ParserRegistry`]: crate::parser::ParserRegistry
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 
 use crate::domain::{
     BestEffortReport, PasswordEntry, PasswordEntryCollection, SpassError, SpassResult,
@@ -138,8 +138,13 @@ impl ColumnLookup {
         }
 
         match indices {
-            [Some(origin_url), Some(username_value), Some(password_value), Some(title), Some(credential_memo)] =>
-            {
+            [
+                Some(origin_url),
+                Some(username_value),
+                Some(password_value),
+                Some(title),
+                Some(credential_memo),
+            ] => {
                 let resolved = [
                     origin_url,
                     username_value,
@@ -474,9 +479,11 @@ mod tests {
             SpassError::UnknownVersionUnparseable(report) => {
                 assert_eq!(report.sentinel, "31");
                 assert_eq!(report.missing_required_columns, vec!["password_value"]);
-                assert!(report
-                    .recognized_columns
-                    .contains(&"origin_url".to_string()));
+                assert!(
+                    report
+                        .recognized_columns
+                        .contains(&"origin_url".to_string())
+                );
                 assert!(report.recognized_columns.contains(&"title".to_string()));
                 assert_eq!(report.entries_extracted, 0);
             }
@@ -502,12 +509,16 @@ mod tests {
         );
 
         let (_, report) = SchemaParser::new().parse_with_report("33", &bytes).unwrap();
-        assert!(report
-            .unknown_columns
-            .contains(&"brand_new_column_a".to_string()));
-        assert!(report
-            .unknown_columns
-            .contains(&"brand_new_column_b".to_string()));
+        assert!(
+            report
+                .unknown_columns
+                .contains(&"brand_new_column_a".to_string())
+        );
+        assert!(
+            report
+                .unknown_columns
+                .contains(&"brand_new_column_b".to_string())
+        );
     }
 
     #[test]

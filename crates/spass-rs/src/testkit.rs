@@ -18,9 +18,9 @@
 //! ```
 
 use aes::Aes256;
-use base64::{engine::general_purpose, Engine};
-use cbc::cipher::{block_padding::Pkcs7, BlockModeEncrypt, KeyIvInit};
+use base64::{Engine, engine::general_purpose};
 use cbc::Encryptor;
+use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
@@ -279,7 +279,7 @@ impl SpassGenerator {
     }
 
     fn build_plaintext_v31(&self) -> String {
-        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 
         const ABSENT_SENTINEL_B64: &str = "JiYmTlVMTCYmJg=="; // Base64("&&&NULL&&&")
 
@@ -838,7 +838,9 @@ mod tests {
             ])
             .write_to_file(format!("{FIXTURE_DIR_V30}/test03-medium.spass"));
 
-        println!("wrote v30/test03-medium.spass   (30 entries: android apps, warnings, duplicates, special chars, long URL)");
+        println!(
+            "wrote v30/test03-medium.spass   (30 entries: android apps, warnings, duplicates, special chars, long URL)"
+        );
 
         // 4. Large — 120 entries. Tests scrolling, filter performance, and bulk
         //    operations on the review page.
@@ -1162,7 +1164,8 @@ mod tests {
         println!("Building {N} entries…");
         let build_start = Instant::now();
 
-        let mut generator = SpassGenerator::new(FIXTURE_PASSWORD).with_version(SpassFormatVersion::V31);
+        let mut generator =
+            SpassGenerator::new(FIXTURE_PASSWORD).with_version(SpassFormatVersion::V31);
 
         for i in 0..N {
             let domain = domains[i % domains.len()];

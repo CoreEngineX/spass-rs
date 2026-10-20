@@ -1,6 +1,6 @@
 //! Benchmarks for decryption operations.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use spass::crypto::{KeyDerivation, PBKDF2_ITERATIONS};
 use spass::domain::EntryPassword;
 use spass::format::SpassDecoder;

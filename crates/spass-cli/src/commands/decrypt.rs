@@ -2,9 +2,9 @@
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use spass::SpassError;
 use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::pipeline::DecryptionPipeline;
-use spass::SpassError;
 use std::fs::File;
 use std::io::{self, BufWriter};
 use std::path::PathBuf;

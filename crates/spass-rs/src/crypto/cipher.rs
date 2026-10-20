@@ -1,6 +1,6 @@
 use aes::Aes256;
-use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use cbc::Decryptor;
+use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -86,8 +86,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_with_correct_key() {
-        use cbc::cipher::BlockModeEncrypt;
         use cbc::Encryptor;
+        use cbc::cipher::BlockModeEncrypt;
 
         let cipher = CipherEngine::new();
         let kd = KeyDerivation::new(1000);

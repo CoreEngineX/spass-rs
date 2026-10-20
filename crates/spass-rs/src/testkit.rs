@@ -842,7 +842,7 @@ mod tests {
 
         // 4. Large — 120 entries. Tests scrolling, filter performance, and bulk
         //    operations on the review page.
-        let mut gen = SpassGenerator::new(FIXTURE_PASSWORD);
+        let mut generator = SpassGenerator::new(FIXTURE_PASSWORD);
         let domains = [
             "google.com",
             "github.com",
@@ -879,7 +879,7 @@ mod tests {
             };
             // Every 10th entry is a duplicate of the previous one
             let suffix = if i % 10 == 9 { i - 1 } else { i };
-            gen = gen.entry(TestEntry::new(
+            generator = generator.entry(TestEntry::new(
                 url,
                 username,
                 format!("Pass#{suffix}!Secure"),
@@ -891,7 +891,7 @@ mod tests {
                 },
             ));
         }
-        gen.write_to_file(format!("{FIXTURE_DIR_V30}/test04-large.spass"));
+        generator.write_to_file(format!("{FIXTURE_DIR_V30}/test04-large.spass"));
 
         println!("wrote v30/test04-large.spass    (120 entries: bulk data, warnings, duplicates)");
         println!("\nPassword for all fixtures: {FIXTURE_PASSWORD}");
@@ -1072,7 +1072,7 @@ mod tests {
         println!("Building {N} entries…");
         let build_start = Instant::now();
 
-        let mut gen = SpassGenerator::new(FIXTURE_PASSWORD);
+        let mut generator = SpassGenerator::new(FIXTURE_PASSWORD);
 
         for i in 0..N {
             let domain = domains[i % domains.len()];
@@ -1101,7 +1101,7 @@ mod tests {
                 (url, username)
             };
 
-            gen = gen.entry(TestEntry::new(
+            generator = generator.entry(TestEntry::new(
                 final_url,
                 final_username,
                 format!("P@ss#{i:07}!Sec"),
@@ -1119,7 +1119,7 @@ mod tests {
         println!("Encrypting with {FIXTURE_PASSWORD:?} (70 000 PBKDF2 iterations)…");
         let enc_start = Instant::now();
 
-        gen.write_to_file(format!("{FIXTURE_DIR_V30}/test05-1m.spass"));
+        generator.write_to_file(format!("{FIXTURE_DIR_V30}/test05-1m.spass"));
 
         let elapsed = enc_start.elapsed();
         let path = format!("{FIXTURE_DIR_V30}/test05-1m.spass");
@@ -1162,11 +1162,11 @@ mod tests {
         println!("Building {N} entries…");
         let build_start = Instant::now();
 
-        let mut gen = SpassGenerator::new(FIXTURE_PASSWORD).with_version(SpassFormatVersion::V31);
+        let mut generator = SpassGenerator::new(FIXTURE_PASSWORD).with_version(SpassFormatVersion::V31);
 
         for i in 0..N {
             let domain = domains[i % domains.len()];
-            gen = gen.entry(TestEntry::new(
+            generator = generator.entry(TestEntry::new(
                 format!("https://{domain}"),
                 format!("user{i}@{domain}"),
                 format!("P@ss#{i:07}!Sec"),
@@ -1185,7 +1185,7 @@ mod tests {
         let enc_start = Instant::now();
 
         let path = format!("{FIXTURE_DIR_V31}/test05-1m.spass");
-        gen.write_to_file(&path);
+        generator.write_to_file(&path);
 
         let elapsed = enc_start.elapsed();
         let size_mb = std::fs::metadata(&path).unwrap().len() as f64 / 1_048_576.0;
@@ -1512,13 +1512,13 @@ mod tests {
         assert!(shifted.starts_with("32\n"));
     }
 
-    fn generate_low_iter(gen: &SpassGenerator) -> String {
-        let salt = gen.salt.unwrap();
-        let iv = gen.iv.unwrap();
-        let plaintext = gen.build_plaintext();
+    fn generate_low_iter(generator: &SpassGenerator) -> String {
+        let salt = generator.salt.unwrap();
+        let iv = generator.iv.unwrap();
+        let plaintext = generator.build_plaintext();
         let ciphertext = SpassGenerator::encrypt_with_iterations(
             plaintext.as_bytes(),
-            &gen.password,
+            &generator.password,
             &salt,
             &iv,
             1_000,
@@ -1532,7 +1532,7 @@ mod tests {
 
     #[test]
     fn round_trips_single_entry() {
-        let gen = generator().entry(TestEntry::new(
+        let generator = generator().entry(TestEntry::new(
             "https://example.com",
             "user@example.com",
             "secret",
@@ -1540,7 +1540,7 @@ mod tests {
             "test note",
         ));
 
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1555,7 +1555,7 @@ mod tests {
 
     #[test]
     fn round_trips_multiple_entries() {
-        let gen = generator()
+        let generator = generator()
             .entry(TestEntry::new("https://a.com", "alice", "pass1", "A", ""))
             .entry(TestEntry::new("https://b.com", "bob", "pass2", "B", "note"))
             .entry(TestEntry::new(
@@ -1566,7 +1566,7 @@ mod tests {
                 "",
             ));
 
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1576,15 +1576,15 @@ mod tests {
 
     #[test]
     fn wrong_password_returns_error() {
-        let gen = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
-        let content = generate_low_iter(&gen);
+        let generator = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new("wrong_password".to_string());
         assert!(pipeline().decrypt_string(&content, &pw).is_err());
     }
 
     #[test]
     fn entry_with_comma_in_field_round_trips() {
-        let gen = generator().entry(TestEntry::new(
+        let generator = generator().entry(TestEntry::new(
             "https://example.com",
             "user@email.com",
             "pass,with,commas",
@@ -1592,7 +1592,7 @@ mod tests {
             "has, commas",
         ));
 
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1608,8 +1608,8 @@ mod tests {
         use crate::domain::VersionStatus;
         use crate::format::SpassFormatVersion;
 
-        let gen = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
-        let content = generate_low_iter(&gen);
+        let generator = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1629,10 +1629,10 @@ mod tests {
         use crate::domain::VersionStatus;
         use crate::format::SpassFormatVersion;
 
-        let gen = generator()
+        let generator = generator()
             .with_version(crate::format::SpassFormatVersion::V31)
             .entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1654,8 +1654,8 @@ mod tests {
 
         // A valid export with zero saved passwords is not an error, and
         // the status stays Known -- no banner.
-        let gen = generator().with_version(crate::format::SpassFormatVersion::V31);
-        let content = generate_low_iter(&gen);
+        let generator = generator().with_version(crate::format::SpassFormatVersion::V31);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
@@ -1677,7 +1677,7 @@ mod tests {
             .into_iter()
             .filter(|c| *c != "password_value")
             .collect();
-        let gen = generator()
+        let generator = generator()
             .with_version(crate::format::SpassFormatVersion::V31)
             .with_v31_header(header)
             .entry(TestEntry::new(
@@ -1687,7 +1687,7 @@ mod tests {
                 "Example",
                 "",
             ));
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let err = pipeline().decrypt_string(&content, &pw).unwrap_err();
 
@@ -1707,7 +1707,7 @@ mod tests {
 
         // 35-column wire shape + an unknown sentinel "33" -> pipeline should
         // detect unknown, run the schema parser, and surface BestEffort.
-        let gen = generator()
+        let generator = generator()
             .with_version(SpassFormatVersion::V31)
             .with_sentinel("33")
             .entry(TestEntry::new(
@@ -1717,7 +1717,7 @@ mod tests {
                 "Example",
                 "note",
             ));
-        let content = generate_low_iter(&gen);
+        let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 

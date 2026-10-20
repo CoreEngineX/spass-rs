@@ -69,7 +69,7 @@ impl GenerateCommand {
         );
 
         let build_start = Instant::now();
-        let mut gen = SpassGenerator::new(&self.password);
+        let mut generator = SpassGenerator::new(&self.password);
 
         // Precompute thresholds as integer periods to avoid float comparisons in
         // the hot loop.
@@ -110,7 +110,7 @@ impl GenerateCommand {
                 (url, username)
             };
 
-            gen = gen.entry(TestEntry::new(
+            generator = generator.entry(TestEntry::new(
                 final_url,
                 final_username,
                 format!("P@ss#{i:07}!Sec"),
@@ -137,7 +137,7 @@ impl GenerateCommand {
             "70 000".bold()
         );
         let enc_start = Instant::now();
-        gen.write_to_file(&self.output);
+        generator.write_to_file(&self.output);
         let enc_elapsed = enc_start.elapsed();
 
         let size_mb = std::fs::metadata(&self.output).map_or(0.0, |m| m.len() as f64 / 1_048_576.0);

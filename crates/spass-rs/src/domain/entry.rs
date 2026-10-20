@@ -1,9 +1,10 @@
 use super::{EntryName, EntryPassword, Note, SpassError, SpassResult, Url, Username};
+#[cfg(feature = "export-json")]
+use serde::ser::SerializeMap;
 
 #[cfg(feature = "export-json")]
 impl serde::Serialize for PasswordEntry {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(Some(5))?;
         map.serialize_entry("url", self.url.as_str())?;
         map.serialize_entry("username", self.username.as_str())?;
@@ -26,13 +27,17 @@ pub enum EntryType {
 }
 
 /// A single decrypted password entry.
-#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct PasswordEntry {
+    /// Site or app the credential belongs to.
     pub url: Url,
+    /// Account name.
     pub username: Username,
+    /// The secret; zeroized on drop.
     pub password: EntryPassword,
+    /// Display name.
     pub name: EntryName,
+    /// Free-text note.
     pub note: Note,
 }
 
@@ -61,18 +66,17 @@ impl PasswordEntry {
     ///
     /// Returns `SpassError::Validation` if fewer than 5 elements are provided.
     pub fn from_raw_strings(fields: &[String]) -> SpassResult<Self> {
-        if fields.len() < 5 {
+        let [url, username, password, name, note, ..] = fields else {
             return Err(SpassError::Validation(
                 "Password entry must have at least 5 fields".to_string(),
             ));
-        }
-
+        };
         Ok(Self::new(
-            fields[0].clone(),
-            fields[1].clone(),
-            fields[2].clone(),
-            fields[3].clone(),
-            fields[4].clone(),
+            url.clone(),
+            username.clone(),
+            password.clone(),
+            name.clone(),
+            note.clone(),
         ))
     }
 

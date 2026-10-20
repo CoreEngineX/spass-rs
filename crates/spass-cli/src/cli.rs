@@ -1,6 +1,7 @@
 //! CLI argument definitions using Clap.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 
 /// Samsung Pass Decryptor - Decrypt and convert .spass files
@@ -29,12 +30,12 @@ pub enum Commands {
         password: Option<String>,
 
         /// Output format
-        #[arg(short, long, value_name = "FORMAT", default_value = "csv")]
+        #[arg(short, long, value_name = "FORMAT", value_enum, ignore_case = true, default_value_t = OutputFormat::Csv)]
         format: OutputFormat,
 
         /// Number of PBKDF2 iterations
         #[arg(long, value_name = "N", default_value_t = spass::crypto::PBKDF2_ITERATIONS)]
-        iterations: u32,
+        iterations: NonZeroU32,
 
         /// Don't show progress bar
         #[arg(long)]
@@ -77,29 +78,8 @@ pub enum Commands {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
     Csv,
     Json,
-}
-
-impl std::str::FromStr for OutputFormat {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "csv" => Ok(OutputFormat::Csv),
-            "json" => Ok(OutputFormat::Json),
-            _ => Err(format!("Invalid format: {s}. Valid formats: csv, json")),
-        }
-    }
-}
-
-impl std::fmt::Display for OutputFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OutputFormat::Csv => write!(f, "csv"),
-            OutputFormat::Json => write!(f, "json"),
-        }
-    }
 }

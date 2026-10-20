@@ -44,7 +44,7 @@ impl CryptoValidator {
             ));
         }
 
-        if ciphertext.as_bytes().len() % 16 != 0 {
+        if !ciphertext.as_bytes().len().is_multiple_of(16) {
             return Err(SpassError::Validation(
                 "Encrypted data size must be multiple of 16 bytes".to_string(),
             ));
@@ -65,33 +65,41 @@ mod tests {
 
         // Empty ciphertext
         let decoded_empty = DecodedFile::builder().build();
-        assert!(validator
-            .validate_ciphertext(decoded_empty.ciphertext())
-            .is_err());
+        assert!(
+            validator
+                .validate_ciphertext(decoded_empty.ciphertext())
+                .is_err()
+        );
 
         // Invalid length (not multiple of 16)
         let invalid_ciphertext = [0u8; 15];
         let decoded_invalid = DecodedFile::builder()
             .ciphertext(&invalid_ciphertext)
             .build();
-        assert!(validator
-            .validate_ciphertext(decoded_invalid.ciphertext())
-            .is_err());
+        assert!(
+            validator
+                .validate_ciphertext(decoded_invalid.ciphertext())
+                .is_err()
+        );
 
         // Valid 16 bytes
         let valid_ciphertext = [0u8; 16];
         let decoded_valid = DecodedFile::builder().ciphertext(&valid_ciphertext).build();
-        assert!(validator
-            .validate_ciphertext(decoded_valid.ciphertext())
-            .is_ok());
+        assert!(
+            validator
+                .validate_ciphertext(decoded_valid.ciphertext())
+                .is_ok()
+        );
 
         // Valid 32 bytes
         let valid_ciphertext_32 = [0u8; 32];
         let decoded_valid_32 = DecodedFile::builder()
             .ciphertext(&valid_ciphertext_32)
             .build();
-        assert!(validator
-            .validate_ciphertext(decoded_valid_32.ciphertext())
-            .is_ok());
+        assert!(
+            validator
+                .validate_ciphertext(decoded_valid_32.ciphertext())
+                .is_ok()
+        );
     }
 }

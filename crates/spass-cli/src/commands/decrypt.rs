@@ -2,11 +2,12 @@
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use spass::SpassError;
 use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::pipeline::DecryptionPipeline;
-use spass::SpassError;
 use std::fs::File;
 use std::io::{self, BufWriter};
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 
 use crate::cli::OutputFormat;
@@ -19,7 +20,7 @@ pub struct DecryptCommand {
     pub output: Option<PathBuf>,
     pub password: Option<String>,
     pub format: OutputFormat,
-    pub iterations: u32,
+    pub iterations: NonZeroU32,
     pub no_progress: bool,
 }
 
@@ -34,16 +35,16 @@ impl DecryptCommand {
             self.input.display().to_string().bold()
         );
 
-        let progress = if !self.no_progress {
+        let progress = if self.no_progress {
+            None
+        } else {
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::default_spinner()
                     .template("{spinner:.cyan} {msg}")
-                    .unwrap(),
+                    .expect("the spinner template is a valid literal"),
             );
             Some(pb)
-        } else {
-            None
         };
 
         if let Some(ref pb) = progress {

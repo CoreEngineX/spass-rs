@@ -32,6 +32,15 @@ impl From<Hex> for String {
     }
 }
 
+fn trimmed(text: String) -> String {
+    let inner = text.trim();
+    if inner.len() == text.len() {
+        text
+    } else {
+        inner.to_owned()
+    }
+}
+
 /// URL for a password entry. Whitespace is trimmed on construction.
 #[derive(Debug, Clone)]
 pub struct Url(String);
@@ -40,9 +49,8 @@ impl Url {
     /// Trims surrounding whitespace from `url` and stores the
     /// remainder.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new(url: String) -> Self {
-        Url(url.trim().to_string())
+        Url(trimmed(url))
     }
 
     /// Borrow the trimmed URL.
@@ -57,18 +65,12 @@ impl Url {
     /// "domain" out of them.
     #[must_use]
     pub fn domain(&self) -> Option<String> {
-        if self.0.starts_with("http://") || self.0.starts_with("https://") {
-            let url = &self.0;
-            let start = url.find("://")?;
-            let after_protocol = &url[start + 3..];
-            if let Some(end) = after_protocol.find('/') {
-                Some(after_protocol[..end].to_string())
-            } else {
-                Some(after_protocol.to_string())
-            }
-        } else {
-            None
-        }
+        let rest = self
+            .0
+            .strip_prefix("https://")
+            .or_else(|| self.0.strip_prefix("http://"))?;
+        let host = rest.split_once('/').map_or(rest, |(host, _)| host);
+        Some(host.to_string())
     }
 }
 
@@ -80,9 +82,8 @@ impl Username {
     /// Trims surrounding whitespace from `username` and stores the
     /// remainder.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new(username: String) -> Self {
-        Username(username.trim().to_string())
+        Username(trimmed(username))
     }
 
     /// Borrow the trimmed username.
@@ -139,9 +140,8 @@ impl EntryName {
     /// Trims surrounding whitespace from `name` and stores the
     /// remainder.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new(name: String) -> Self {
-        EntryName(name.trim().to_string())
+        EntryName(trimmed(name))
     }
 
     /// Borrow the trimmed name.
@@ -160,9 +160,8 @@ impl Note {
     /// Trims surrounding whitespace from `note` and stores the
     /// remainder.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new(note: String) -> Self {
-        Note(note.trim().to_string())
+        Note(trimmed(note))
     }
 
     /// Borrow the trimmed note.
@@ -207,5 +206,37 @@ impl DecryptedData {
 impl fmt::Debug for DecryptedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DecryptedData({} bytes)", self.0.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn domain_is_the_host_of_web_urls_only() {
+        let cases = [
+            ("https://github.com/login", Some("github.com")),
+            ("http://example.com", Some("example.com")),
+            ("  https://a.example/b/c  ", Some("a.example")),
+            ("android://com.example.app", None),
+            ("ftp://files.example", None),
+            ("example.com", None),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(
+                Url::new(raw.to_owned()).domain().as_deref(),
+                expected,
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn construction_trims_surrounding_whitespace_only() {
+        assert_eq!(Url::new(" https://a.b ".to_owned()).as_str(), "https://a.b");
+        assert_eq!(Username::new("user".to_owned()).as_str(), "user");
+        assert_eq!(EntryName::new("\tName\n".to_owned()).as_str(), "Name");
+        assert_eq!(Note::new("  a  b  ".to_owned()).as_str(), "a  b");
     }
 }

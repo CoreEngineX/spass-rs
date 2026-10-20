@@ -78,7 +78,7 @@ fn test_decrypt_invalid_format() {
 
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("Invalid format"));
+        .stderr(predicate::str::contains("possible values: csv, json"));
 }
 
 #[test]

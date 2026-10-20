@@ -1,9 +1,11 @@
 //! Benchmarks for decryption operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use spass::crypto::{KeyDerivation, PBKDF2_ITERATIONS};
+use criterion::{Criterion, criterion_group, criterion_main};
+use spass::crypto::{CipherEngine, KeyDerivation, PBKDF2_ITERATIONS};
 use spass::domain::EntryPassword;
 use spass::format::SpassDecoder;
+use std::hint::black_box;
+use std::num::NonZeroU32;
 
 fn bench_key_derivation(c: &mut Criterion) {
     let kd = KeyDerivation::new(PBKDF2_ITERATIONS);
@@ -15,8 +17,9 @@ fn bench_key_derivation(c: &mut Criterion) {
     data.extend_from_slice(&[0u8; 16]); // iv
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
 
-    let decoder = SpassDecoder::new();
-    let decoded = decoder.decode_from_bytes(base64_data.as_bytes()).unwrap();
+    let decoded = SpassDecoder::new()
+        .decode_from_bytes(base64_data.as_bytes())
+        .unwrap();
     let salt = decoded.salt();
 
     c.bench_function("key_derivation_70k_iterations", |b| {
@@ -35,15 +38,16 @@ fn bench_key_derivation_different_iterations(c: &mut Criterion) {
     data.extend_from_slice(&[0u8; 16]); // iv
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
 
-    let decoder = SpassDecoder::new();
-    let decoded = decoder.decode_from_bytes(base64_data.as_bytes()).unwrap();
+    let decoded = SpassDecoder::new()
+        .decode_from_bytes(base64_data.as_bytes())
+        .unwrap();
     let salt = decoded.salt();
 
     let mut group = c.benchmark_group("key_derivation_iterations");
 
-    for iterations in &[10_000, 50_000, 70_000, 100_000] {
-        let kd = KeyDerivation::new(*iterations);
-        group.bench_with_input(format!("{iterations}_iterations"), iterations, |b, _| {
+    for iterations in [10_000, 50_000, 70_000, 100_000].map(|n| NonZeroU32::new(n).unwrap()) {
+        let kd = KeyDerivation::new(iterations);
+        group.bench_with_input(format!("{iterations}_iterations"), &iterations, |b, _| {
             b.iter(|| {
                 let _ = kd.derive_key(black_box(&password), black_box(salt));
             });
@@ -54,10 +58,8 @@ fn bench_key_derivation_different_iterations(c: &mut Criterion) {
 }
 
 fn bench_aes_decryption(c: &mut Criterion) {
-    use spass::crypto::CipherEngine;
-
     let cipher = CipherEngine::new();
-    let kd = KeyDerivation::new(1000); // Low iterations for faster setup
+    let kd = KeyDerivation::new(NonZeroU32::new(1_000).unwrap());
 
     // Create encrypted data for benchmarking
     let password = EntryPassword::new("benchmark_password".into());
@@ -70,8 +72,9 @@ fn bench_aes_decryption(c: &mut Criterion) {
     data.extend_from_slice(&ciphertext_bytes); // ciphertext
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
 
-    let decoder = SpassDecoder::new();
-    let decoded = decoder.decode_from_bytes(base64_data.as_bytes()).unwrap();
+    let decoded = SpassDecoder::new()
+        .decode_from_bytes(base64_data.as_bytes())
+        .unwrap();
 
     let key = kd.derive_key(&password, decoded.salt()).unwrap();
 

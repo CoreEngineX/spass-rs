@@ -11,7 +11,7 @@
 use serde_json::Value;
 use spass::format::SpassFormatVersion;
 use spass::testkit::{SpassGenerator, TestEntry};
-use spass_uniffi::{decrypt, FfiVersionStatus, SpassFfiError};
+use spass_uniffi::{FfiVersionStatus, SpassFfiError, decrypt};
 
 const TEST_PASSWORD: &str = "TestPassword123";
 
@@ -258,7 +258,7 @@ fn best_effort_report_precomputes_ios_contribution_strings() {
     let outcome = decrypt(file, TEST_PASSWORD.into()).expect("best-effort decrypt should succeed");
     let report = match outcome.version_status {
         FfiVersionStatus::BestEffort { report } => report,
-        other => panic!("expected BestEffort, got {other:?}"),
+        other @ FfiVersionStatus::Known { .. } => panic!("expected BestEffort, got {other:?}"),
     };
 
     // The bridge stamps its provenance from the target OS, so this test

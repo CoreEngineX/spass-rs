@@ -1,4 +1,6 @@
 use super::{EntryType, PasswordEntry};
+#[cfg(feature = "export-json")]
+use serde::ser::SerializeSeq;
 
 /// A collection of password entries.
 #[derive(Debug, Clone, Default)]
@@ -73,7 +75,6 @@ impl PasswordEntryCollection {
 #[cfg(feature = "export-json")]
 impl serde::Serialize for PasswordEntryCollection {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeSeq;
         let mut seq = serializer.serialize_seq(Some(self.entries.len()))?;
         for e in &self.entries {
             seq.serialize_element(e)?;

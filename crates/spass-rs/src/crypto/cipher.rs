@@ -1,7 +1,6 @@
 use aes::Aes256;
-use cbc::cipher::generic_array::GenericArray;
-use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use cbc::Decryptor;
+use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -46,12 +45,9 @@ impl CipherEngine {
     ) -> SpassResult<DecryptedData> {
         let mut buffer = ciphertext.as_bytes().to_vec();
 
-        let key_array = GenericArray::from_slice(key.as_bytes());
-        let iv_array = GenericArray::from_slice(iv.as_bytes());
+        let decryptor = Aes256CbcDec::new(key.as_bytes().into(), iv.as_bytes().into());
 
-        let decryptor = Aes256CbcDec::new(key_array, iv_array);
-
-        let result = decryptor.decrypt_padded_mut::<Pkcs7>(&mut buffer);
+        let result = decryptor.decrypt_padded::<Pkcs7>(&mut buffer);
 
         if let Ok(plaintext) = result {
             Ok(DecryptedData::new(plaintext.to_vec()))
@@ -72,11 +68,17 @@ mod tests {
     use crate::crypto::KeyDerivation;
     use crate::domain::EntryPassword;
     use crate::format::DecodedFile;
+    use cbc::Encryptor;
+    use cbc::cipher::BlockModeEncrypt;
+    use std::num::NonZeroU32;
+    use std::time::Instant;
+
+    const FAST_ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
 
     #[test]
     fn test_decrypt_with_wrong_key() {
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("wrong_password".into());
         let ciphertext_bytes = [0u8; 32];
@@ -90,11 +92,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_with_correct_key() {
-        use cbc::cipher::BlockEncryptMut;
-        use cbc::Encryptor;
-
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("correct_password".into());
         let iv_bytes = [0u8; 16];
@@ -106,12 +105,9 @@ mod tests {
         let decoded_for_key = DecodedFile::builder().build();
         let key = kd.derive_key(&password, decoded_for_key.salt()).unwrap();
 
-        let key_array = GenericArray::from_slice(key.as_bytes());
-        let iv_array = GenericArray::from_slice(&iv_bytes);
-
-        let encryptor = Encryptor::<Aes256>::new(key_array, iv_array);
+        let encryptor = Encryptor::<Aes256>::new(key.as_bytes().into(), (&iv_bytes).into());
         let ciphertext_len = encryptor
-            .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
+            .encrypt_padded::<Pkcs7>(&mut buffer, plaintext.len())
             .unwrap()
             .len();
 
@@ -131,10 +127,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_constant_time_on_error() {
-        use std::time::Instant;
-
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("test_password".into());
         let ciphertext_bytes = [0u8; 32];

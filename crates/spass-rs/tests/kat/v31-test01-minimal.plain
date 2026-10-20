@@ -1,0 +1,6 @@
+31
+true;false;false;false
+false
+next_table
+_id;origin_url;action_url;username_element;username_value;id_tz_enc;password_element;password_value;pw_tz_enc;host_url;ssl_valid;preferred;blacklisted_by_user;use_additional_auth;cm_api_support;created_time;modified_time;title;favicon;source_type;app_name;package_name;package_signature;reserved_1;reserved_2;reserved_3;reserved_4;reserved_5;reserved_6;reserved_7;reserved_8;credential_memo;otp;root_id;parent_id
+MQ==;aHR0cHM6Ly9leGFtcGxlMC5jb20=;;;dXNlcjBAbWFpbC5jb20=;;;cGFzc3dvcmQw;;;;;;;;;;U2l0ZSAwMDA=;;;;;;;;;;;;;;JiYmTlVMTCYmJg==;;;

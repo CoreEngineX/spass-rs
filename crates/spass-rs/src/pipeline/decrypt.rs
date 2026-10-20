@@ -1,5 +1,6 @@
 //! Decryption pipeline for processing `SPass` files end-to-end.
 
+use std::num::NonZeroU32;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
@@ -69,7 +70,7 @@ impl DecryptionPipeline {
     /// For the common case where you just want to decrypt a real
     /// `.spass` file, use [`DecryptionPipeline::default`] instead.
     #[must_use]
-    pub fn new(iterations: u32) -> Self {
+    pub fn new(iterations: NonZeroU32) -> Self {
         Self {
             key_derivation: KeyDerivation::new(iterations),
             cipher: CipherEngine::new(),
@@ -207,10 +208,13 @@ impl Default for DecryptionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::DecodedFile;
+
+    const FAST_ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
 
     #[test]
     fn test_new_pipeline() {
-        let _ = DecryptionPipeline::new(1000);
+        let _ = DecryptionPipeline::new(FAST_ITERATIONS);
     }
 
     #[test]
@@ -220,9 +224,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_data_with_invalid_salt() {
-        use crate::format::DecodedFile;
-
-        let pipeline = DecryptionPipeline::new(1000);
+        let pipeline = DecryptionPipeline::new(FAST_ITERATIONS);
         let ciphertext_bytes = b"ciphertext123456";
 
         let decoded = DecodedFile::builder().ciphertext(ciphertext_bytes).build();
@@ -239,9 +241,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_data_with_empty_ciphertext() {
-        use crate::format::DecodedFile;
-
-        let pipeline = DecryptionPipeline::new(1000);
+        let pipeline = DecryptionPipeline::new(FAST_ITERATIONS);
         let decoded = DecodedFile::builder().build();
 
         let result = pipeline.decrypt_data(

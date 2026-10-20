@@ -269,14 +269,15 @@ pub struct FfiDecryptOutcome {
 /// - [`SpassFfiError::Internal`] for I/O failures, configuration
 ///   mismatches, or the (theoretically impossible) JSON serialisation
 ///   failure on the result.
-//
-// `String` (not `&str`) is required by `UniFFI`'s wire format for owned strings;
-// `clippy::needless_pass_by_value` is wrong about this signature.
-// `result_large_err` is acceptable because the `Err` arm only materialises on
-// the rare `UnknownVersion` path; the success path carries no precomputed
-// strings in the Result discriminant.
 #[uniffi::export]
-#[allow(clippy::needless_pass_by_value, clippy::result_large_err)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "UniFFI hands exported functions owned strings"
+)]
+#[expect(
+    clippy::result_large_err,
+    reason = "only the rare unknown-version error carries the large report"
+)]
 pub fn decrypt(file_text: String, password: String) -> Result<FfiDecryptOutcome, SpassFfiError> {
     let pipeline = DecryptionPipeline::default();
     let pw = EntryPassword::new(password);

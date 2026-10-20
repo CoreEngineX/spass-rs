@@ -2,6 +2,7 @@
 
 use super::decrypt::DecryptionPipeline;
 use crate::crypto::PBKDF2_ITERATIONS;
+use std::num::NonZeroU32;
 
 /// Builder for [`DecryptionPipeline`].
 ///
@@ -9,14 +10,15 @@ use crate::crypto::PBKDF2_ITERATIONS;
 ///
 /// ```
 /// use spass::pipeline::PipelineBuilder;
+/// use std::num::NonZeroU32;
 ///
-/// let pipeline = PipelineBuilder::new()
-///     .iterations(100_000)
-///     .build();
+/// const ITERATIONS: NonZeroU32 = NonZeroU32::new(100_000).unwrap();
+///
+/// let pipeline = PipelineBuilder::new().iterations(ITERATIONS).build();
 /// ```
 #[derive(Default)]
 pub struct PipelineBuilder {
-    iterations: Option<u32>,
+    iterations: Option<NonZeroU32>,
 }
 
 impl PipelineBuilder {
@@ -32,7 +34,7 @@ impl PipelineBuilder {
     /// -- if unset. Lowering this only makes sense in tests where
     /// you don't actually need to decrypt a real export.
     #[must_use]
-    pub fn iterations(mut self, iterations: u32) -> Self {
+    pub fn iterations(mut self, iterations: NonZeroU32) -> Self {
         self.iterations = Some(iterations);
         self
     }
@@ -58,11 +60,15 @@ mod tests {
 
     #[test]
     fn test_builder_with_custom_iterations() {
-        let _ = PipelineBuilder::new().iterations(50_000).build();
+        let _ = PipelineBuilder::new()
+            .iterations(NonZeroU32::new(50_000).unwrap())
+            .build();
     }
 
     #[test]
     fn test_builder_chaining() {
-        let _ = PipelineBuilder::new().iterations(100_000).build();
+        let _ = PipelineBuilder::new()
+            .iterations(NonZeroU32::new(100_000).unwrap())
+            .build();
     }
 }

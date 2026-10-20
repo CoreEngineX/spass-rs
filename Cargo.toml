@@ -9,8 +9,8 @@ resolver = "2"
 
 [workspace.package]
 version = "0.3.0"
-edition = "2021"
-rust-version = "1.80"
+edition = "2024"
+rust-version = "1.99"
 authors = ["CoreEngineX"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/CoreEngineX/spass-rs"
@@ -18,22 +18,19 @@ repository = "https://github.com/CoreEngineX/spass-rs"
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-thiserror = "1.0"
-tracing = "0.1"
+thiserror = "2.0.21"
 
-aes = "0.8"
-cbc = "0.1"
-pbkdf2 = { version = "0.12", features = ["simple"] }
-sha2 = "0.10"
-hmac = "0.12"
+aes = { version = "0.9.3", features = ["zeroize"] }
+cbc = { version = "0.2.1", features = ["zeroize"] }
+pbkdf2 = "0.13.0"
+sha2 = "0.11.1"
+hmac = "0.13.0"
 
-secrecy = "0.8"
 zeroize = { version = "1.7", features = ["derive"] }
-subtle = "2.5"
 
 clap = { version = "4.5", features = ["derive"] }
 
-base64 = "0.22"
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 hex = "0.4"
 csv = "1.3"
 

@@ -1,6 +1,5 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
-#![allow(clippy::module_name_repetitions)]
 // Blanket `clippy::pedantic` is deliberately NOT set here. The gated subset
 // lives in scripts/ci-check.sh as individual -W flags, matching what
 // `cex ci-check --rust` enforces org-wide; a crate-level blanket turns on the
@@ -13,7 +12,8 @@
 //!
 //! # Security
 //!
-//! - All sensitive data is automatically zeroized on drop
+//! - The password, the derived key, the decrypted bytes and the AES and CBC cipher state are
+//!   zeroized on drop
 //! - Constant-time operations prevent timing attacks
 //! - No passwords are logged or exposed in error messages
 //!

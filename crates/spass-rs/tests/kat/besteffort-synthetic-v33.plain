@@ -1,0 +1,10 @@
+33
+true;false;false;false
+false
+next_table
+_id;origin_url;action_url;username_element;username_value;id_tz_enc;password_element;password_value;pw_tz_enc;host_url;ssl_valid;preferred;blacklisted_by_user;use_additional_auth;cm_api_support;created_time;modified_time;title;favicon;source_type;app_name;package_name;package_signature;reserved_1;reserved_2;reserved_3;reserved_4;reserved_5;reserved_6;reserved_7;reserved_8;credential_memo;otp;root_id;parent_id
+MQ==;aHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29t;;;YWxleC5tb3JnYW5AZ21haWwuY29t;;;RzAwZ2xlUEBzcyEyMDI2;;;;;;;;;;R29vZ2xl;;;;;;;;;;;;;;UGVyc29uYWw=;;;
+Mg==;aHR0cHM6Ly9naXRodWIuY29t;;;YWxleG1vcmdhbg==;;;Z2hfcGF0X3YzMl9hYmMxMjM=;;;;;;;;;;R2l0SHVi;;;;;;;;;;;;;;JiYmTlVMTCYmJg==;;;
+Mw==;aHR0cHM6Ly9uZXRmbGl4LmNvbQ==;;;YWxleC5tb3JnYW5AZ21haWwuY29t;;;TmV0ZmwxeCFTdHJlYW0=;;;;;;;;;;TmV0ZmxpeA==;;;;;;;;;;;;;;RmFtaWx5IHBsYW4=;;;
+NA==;YW5kcm9pZDovL2NvbS5zYW1zdW5nLmFuZHJvaWQuYXBwLnNhbXN1bmdwYXk=;;;YWxleC5tb3JnYW5AZ21haWwuY29t;;;U1BheVBAc3M5IQ==;;;;;;;;;;U2Ftc3VuZyBQYXk=;;;;;;;;;;;;;;JiYmTlVMTCYmJg==;;;
+NQ==;aHR0cHM6Ly9hcHBsZS5jb20=;;;YWxleC5tb3JnYW5AaWNsb3VkLmNvbQ==;;;QXBwbGVJRF9TZWN1cmUh;;;;;;;;;;QXBwbGUgSUQ=;;;;;;;;;;;;;;JiYmTlVMTCYmJg==;;;

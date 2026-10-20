@@ -19,8 +19,15 @@
 //! in-process tests catch lenient-parser correctness drift.
 //!
 //! Regenerate the committed fixture with:
-//!   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
+//!   `cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored`
 
+use aes::Aes256;
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use cbc::Encryptor;
+use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
+use hmac::Hmac;
+use pbkdf2::pbkdf2;
+use sha2::Sha256;
 use spass::domain::{EntryPassword, ReportSource, SpassError, VersionStatus};
 use spass::format::SpassFormatVersion;
 use spass::pipeline::DecryptionPipeline;
@@ -128,7 +135,10 @@ fn besteffort_fixture_entries_match_generator() {
         assert_eq!(entry.url.as_str(), *url);
         assert_eq!(entry.username.as_str(), *username);
         assert_eq!(entry.name.as_str(), *name);
-        assert!(!entry.password.as_str().is_empty());
+        assert!(
+            !entry.password.as_str().is_empty(),
+            "the password should not be empty"
+        );
     }
 }
 
@@ -471,7 +481,11 @@ fn lenient_handles_reordered_canonical_columns() {
     assert_eq!(entries[0].note.as_str(), "Personal");
 
     if let VersionStatus::BestEffort { report } = outcome.version_status {
-        assert!(report.missing_required_columns.is_empty());
+        assert!(
+            report.missing_required_columns.is_empty(),
+            "unexpected: {:?}",
+            report.missing_required_columns
+        );
         assert_eq!(report.recognized_columns.len(), 5);
     } else {
         panic!("expected BestEffort");
@@ -582,8 +596,16 @@ fn lenient_handles_minimal_header_with_only_required_columns() {
     assert_eq!(outcome.entries.len(), 3);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
         assert_eq!(report.recognized_columns.len(), 5);
-        assert!(report.unknown_columns.is_empty());
-        assert!(report.missing_required_columns.is_empty());
+        assert!(
+            report.unknown_columns.is_empty(),
+            "unexpected: {:?}",
+            report.unknown_columns
+        );
+        assert!(
+            report.missing_required_columns.is_empty(),
+            "unexpected: {:?}",
+            report.missing_required_columns
+        );
     } else {
         panic!("expected BestEffort");
     }
@@ -692,7 +714,11 @@ fn all_required_columns_missing_returns_full_diagnostic() {
     match &err {
         SpassError::UnknownVersionUnparseable(report) => {
             assert_eq!(report.missing_required_columns.len(), 5);
-            assert!(report.recognized_columns.is_empty());
+            assert!(
+                report.recognized_columns.is_empty(),
+                "unexpected: {:?}",
+                report.recognized_columns
+            );
             assert_eq!(report.unknown_columns.len(), 5);
             assert_eq!(report.entries_extracted, 0);
 
@@ -797,7 +823,7 @@ fn lenient_round_trips_long_field_values() {
         "user@example.com".to_string(),
         long_password.clone(),
         "Example".to_string(),
-        "".to_string(),
+        String::new(),
     )];
 
     let blob = build_v31_shape_with_sentinel("33", entries);
@@ -866,7 +892,11 @@ fn unknown_version_with_zero_entries_succeeds_with_empty_collection() {
     assert_eq!(outcome.entries.len(), 0);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
         assert_eq!(report.entries_extracted, 0);
-        assert!(report.missing_required_columns.is_empty());
+        assert!(
+            report.missing_required_columns.is_empty(),
+            "unexpected: {:?}",
+            report.missing_required_columns
+        );
     } else {
         panic!("expected BestEffort");
     }
@@ -880,8 +910,6 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
     // boundary by searching for the literal `next_table` string. This test
     // confirms that skip by constructing a file whose `next_table` lives
     // somewhere that NEITHER strict path would accept: line 5.
-    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-
     let canonical_header = SpassGenerator::canonical_v31_header().join(";");
     let row = {
         let mut parts: Vec<String> = (0..35).map(|_| String::new()).collect();
@@ -901,13 +929,6 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
     );
 
     // Hand-encrypt with the same dance the testkit uses internally.
-    use aes::Aes256;
-    use cbc::Encryptor;
-    use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
-    use hmac::Hmac;
-    use pbkdf2::pbkdf2;
-    use sha2::Sha256;
-
     let salt = [0xab_u8; 20];
     let iv = [0xcd_u8; 16];
     let mut key = [0u8; 32];

@@ -2,11 +2,13 @@
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use spass::crypto::PBKDF2_ITERATIONS;
 use spass::testkit::{SpassGenerator, TestEntry};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
+use crate::output::formatter::scaled;
 
 const DOMAINS: &[&str] = &[
     "google.com",
@@ -64,7 +66,7 @@ impl GenerateCommand {
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.cyan} [{bar:40.cyan/white}] {pos}/{len} entries ({eta})")
-                .unwrap()
+                .expect("the bar template is a valid literal")
                 .progress_chars("█▉▊▋▌▍▎▏  "),
         );
 
@@ -134,13 +136,18 @@ impl GenerateCommand {
         println!(
             "  {} encrypting with {} PBKDF2 iterations…",
             "→".cyan(),
-            "70 000".bold()
+            PBKDF2_ITERATIONS.to_string().bold()
         );
         let enc_start = Instant::now();
-        generator.write_to_file(&self.output);
+        let encoded = generator.generate();
+        std::fs::write(&self.output, &encoded)
+            .map_err(|e| CliError::OutputWrite(format!("{}: {e}", self.output.display())))?;
         let enc_elapsed = enc_start.elapsed();
-
-        let size_mb = std::fs::metadata(&self.output).map_or(0.0, |m| m.len() as f64 / 1_048_576.0);
+        let size_mb = scaled(
+            u64::try_from(encoded.len()).unwrap_or(u64::MAX),
+            1_048_576,
+            1,
+        );
 
         println!("  {} encrypted in {enc_elapsed:.2?}", "Done".green().bold());
         println!();
@@ -149,7 +156,7 @@ impl GenerateCommand {
             "File:".bold(),
             self.output.display().to_string().cyan()
         );
-        println!("  {}  {:.1} MB", "Size:".bold(), size_mb);
+        println!("  {}  {size_mb} MB", "Size:".bold());
         println!("  {}  {}", "Password:".bold(), self.password.cyan());
 
         Ok(())

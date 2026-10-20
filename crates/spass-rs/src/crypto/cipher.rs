@@ -68,11 +68,17 @@ mod tests {
     use crate::crypto::KeyDerivation;
     use crate::domain::EntryPassword;
     use crate::format::DecodedFile;
+    use cbc::Encryptor;
+    use cbc::cipher::BlockModeEncrypt;
+    use std::num::NonZeroU32;
+    use std::time::Instant;
+
+    const FAST_ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
 
     #[test]
     fn test_decrypt_with_wrong_key() {
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("wrong_password".into());
         let ciphertext_bytes = [0u8; 32];
@@ -86,11 +92,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_with_correct_key() {
-        use cbc::Encryptor;
-        use cbc::cipher::BlockModeEncrypt;
-
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("correct_password".into());
         let iv_bytes = [0u8; 16];
@@ -124,10 +127,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_constant_time_on_error() {
-        use std::time::Instant;
-
         let cipher = CipherEngine::new();
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("test_password".into());
         let ciphertext_bytes = [0u8; 32];

@@ -108,10 +108,10 @@ struct ColumnLookup {
 /// What `ColumnLookup::from_header` populates when at least one required
 /// column was absent. Carries the same diagnostic data the success path
 /// uses, but skips the resolved indices because there's nothing to parse.
-///
-/// `_columns` suffix is load-bearing here; flowing into `BestEffortReport`'s
-/// fields of the same name.
-#[allow(clippy::struct_field_names)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "the names match BestEffortReport's fields, which they flow into"
+)]
 struct LookupFailure {
     recognized_columns: Vec<String>,
     missing_required_columns: Vec<String>,
@@ -206,10 +206,10 @@ impl SchemaParser {
     /// - [`SpassError::UnknownVersionUnparseable`] when at least one of
     ///   the 5 required columns is absent from the header -- carries the
     ///   diagnostic for the contribution flow.
-    //
-    // `&self` keeps call sites symmetric with the v30 parser and leaves
-    // room for configuration without an API break.
-    #[allow(clippy::unused_self)]
+    #[allow(
+        clippy::unused_self,
+        reason = "matches the v30 parser's call shape and leaves room for configuration"
+    )]
     pub fn parse_with_report(
         &self,
         sentinel: &str,
@@ -395,7 +395,11 @@ mod tests {
 
         assert_eq!(report.sentinel, "33");
         assert_eq!(report.entries_extracted, 1);
-        assert!(report.missing_required_columns.is_empty());
+        assert!(
+            report.missing_required_columns.is_empty(),
+            "unexpected: {:?}",
+            report.missing_required_columns
+        );
         assert_eq!(report.recognized_columns.len(), 5);
     }
 
@@ -456,7 +460,11 @@ mod tests {
         let (entries, report) = SchemaParser::new().parse_with_report("31", &bytes).unwrap();
         assert!(entries.is_empty());
         assert_eq!(report.entries_extracted, 0);
-        assert!(report.missing_required_columns.is_empty());
+        assert!(
+            report.missing_required_columns.is_empty(),
+            "unexpected: {:?}",
+            report.missing_required_columns
+        );
     }
 
     #[test]

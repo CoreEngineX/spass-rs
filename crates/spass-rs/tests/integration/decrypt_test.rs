@@ -2,7 +2,12 @@
 //!
 //! These tests use real `.spass` files to verify end-to-end functionality.
 
-use spass::{crypto::PBKDF2_ITERATIONS, domain::EntryPassword, pipeline::DecryptionPipeline};
+use spass::{
+    crypto::PBKDF2_ITERATIONS,
+    domain::EntryPassword,
+    pipeline::{DecryptionPipeline, PipelineBuilder},
+};
+use std::num::NonZeroU32;
 
 /// Test full decryption pipeline with a real `.spass` file.
 ///
@@ -71,9 +76,9 @@ fn test_pipeline_default() {
 /// Test pipeline builder pattern.
 #[test]
 fn test_pipeline_builder() {
-    use spass::pipeline::PipelineBuilder;
-
-    let pipeline = PipelineBuilder::new().iterations(100_000).build();
+    let pipeline = PipelineBuilder::new()
+        .iterations(NonZeroU32::new(100_000).unwrap())
+        .build();
 
     let _ = pipeline;
 }

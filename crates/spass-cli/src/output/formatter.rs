@@ -52,3 +52,29 @@ impl OutputFormatter {
         println!();
     }
 }
+
+/// `bytes / unit` rounded to `places` decimal places, in integer arithmetic.
+pub fn scaled(bytes: u64, unit: u64, places: u32) -> String {
+    let factor = 10u128.pow(places);
+    let unit = u128::from(unit);
+    let value = (u128::from(bytes) * factor + unit / 2) / unit;
+    if places == 0 {
+        return value.to_string();
+    }
+    let width = usize::try_from(places).unwrap_or(usize::MAX);
+    format!("{}.{:0width$}", value / factor, value % factor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scaled;
+
+    #[test]
+    fn scaled_rounds_to_the_requested_places() {
+        assert_eq!(scaled(1536, 1024, 2), "1.50");
+        assert_eq!(scaled(0, 1024, 2), "0.00");
+        assert_eq!(scaled(1023, 1024, 2), "1.00");
+        assert_eq!(scaled(103_611_740, 1_048_576, 1), "98.8");
+        assert_eq!(scaled(5, 1, 0), "5");
+    }
+}

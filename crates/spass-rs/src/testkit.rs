@@ -18,12 +18,15 @@
 //! ```
 
 use aes::Aes256;
-use base64::{Engine, engine::general_purpose};
+use base64::Engine;
+use base64::engine::general_purpose::{self, STANDARD as BASE64};
 use cbc::Encryptor;
 use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
+
+use crate::crypto::PBKDF2_ITERATIONS;
 
 /// A single password entry used when generating a test fixture.
 #[derive(Debug, Clone)]
@@ -279,8 +282,6 @@ impl SpassGenerator {
     }
 
     fn build_plaintext_v31(&self) -> String {
-        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-
         const ABSENT_SENTINEL_B64: &str = "JiYmTlVMTCYmJg=="; // Base64("&&&NULL&&&")
 
         let canonical_header: [&str; 35] = [
@@ -461,7 +462,7 @@ impl SpassGenerator {
     }
 
     fn encrypt(plaintext: &[u8], password: &str, salt: &[u8; 20], iv: &[u8; 16]) -> Vec<u8> {
-        Self::encrypt_with_iterations(plaintext, password, salt, iv, 70_000)
+        Self::encrypt_with_iterations(plaintext, password, salt, iv, PBKDF2_ITERATIONS.get())
     }
 }
 
@@ -518,8 +519,11 @@ impl SpassGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::EntryPassword;
+    use crate::domain::{EntryPassword, SpassError, VersionStatus};
+    use crate::format::SpassFormatVersion;
     use crate::pipeline::DecryptionPipeline;
+    use std::assert_matches;
+    use std::time::Instant;
 
     const TEST_PASSWORD: &str = "test_password_123";
     const FIXTURE_PASSWORD: &str = "TestPassword123";
@@ -542,7 +546,7 @@ mod tests {
     /// `spass-core/gen-test/v30/` for manual website / iOS / CLI testing.
     ///
     /// Run with:
-    ///   cargo test -p spass generate_website_fixtures -- --nocapture --ignored
+    ///   `cargo test -p spass generate_website_fixtures -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes v30 files into the repo"]
     fn generate_website_fixtures() {
@@ -908,12 +912,10 @@ mod tests {
     /// matrix that the v30 fixtures already cover.
     ///
     /// Run with:
-    ///   cargo test -p spass generate_website_fixtures_v31 -- --nocapture --ignored
+    ///   `cargo test -p spass generate_website_fixtures_v31 -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes v31 files into the repo"]
     fn generate_website_fixtures_v31() {
-        use crate::format::SpassFormatVersion;
-
         std::fs::create_dir_all(FIXTURE_DIR_V31).unwrap();
 
         let make_entries = |n: usize| -> Vec<TestEntry> {
@@ -960,15 +962,13 @@ mod tests {
     /// wire shape is the canonical 35-column layout, so the schema parser's
     /// name-keyed lookup finds all 5 required columns. Used by the
     /// besteffort integration tests to confirm the pipeline routes unknown
-    /// sentinels through the BestEffort path on a real file-on-disk.
+    /// sentinels through the `BestEffort` path on a real file-on-disk.
     ///
     /// Run with:
-    ///   cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored
+    ///   `cargo test -p spass generate_besteffort_fixture -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes a best-effort file into the repo"]
     fn generate_besteffort_fixture() {
-        use crate::format::SpassFormatVersion;
-
         std::fs::create_dir_all(FIXTURE_DIR_BESTEFFORT).unwrap();
 
         // Five real-looking entries -- enough to verify the loop, small
@@ -1018,8 +1018,8 @@ mod tests {
             .entries(entries)
             .write_to_file(&path);
 
-        let size_kb = std::fs::metadata(&path).unwrap().len() as f64 / 1024.0;
-        println!("wrote besteffort/synthetic-v33.spass (5 entries, {size_kb:.1} KB)");
+        let size = std::fs::metadata(&path).unwrap().len();
+        println!("wrote besteffort/synthetic-v33.spass (5 entries, {size} bytes)");
         println!("File password: {FIXTURE_PASSWORD}");
     }
 
@@ -1028,15 +1028,13 @@ mod tests {
     /// gitignored.
     ///
     /// Run with:
-    ///   cargo test -p spass generate_1m_fixture -- --nocapture --ignored
+    ///   `cargo test -p spass generate_1m_fixture -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes a multi-hundred-MB v30 file"]
     fn generate_1m_fixture() {
-        use std::time::Instant;
+        const N: usize = 1_000_000;
 
         std::fs::create_dir_all(FIXTURE_DIR_V30).unwrap();
-
-        const N: usize = 1_000_000;
 
         let domains = [
             "google.com",
@@ -1125,10 +1123,10 @@ mod tests {
 
         let elapsed = enc_start.elapsed();
         let path = format!("{FIXTURE_DIR_V30}/test05-1m.spass");
-        let size_mb = std::fs::metadata(&path).unwrap().len() as f64 / 1_048_576.0;
+        let size = std::fs::metadata(&path).unwrap().len();
 
         println!("Encrypted in {elapsed:.2?}");
-        println!("wrote v30/test05-1m.spass ({N} entries, {size_mb:.1} MB)");
+        println!("wrote v30/test05-1m.spass ({N} entries, {size} bytes)");
         println!("Password: {FIXTURE_PASSWORD}");
     }
 
@@ -1137,16 +1135,13 @@ mod tests {
     /// (Base64 + 35 columns roughly doubles v30's wire size) and gitignored.
     ///
     /// Run with:
-    ///   cargo test -p spass generate_1m_fixture_v31 -- --nocapture --ignored
+    ///   `cargo test -p spass generate_1m_fixture_v31 -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes a multi-hundred-MB v31 file"]
     fn generate_1m_fixture_v31() {
-        use crate::format::SpassFormatVersion;
-        use std::time::Instant;
+        const N: usize = 1_000_000;
 
         std::fs::create_dir_all(FIXTURE_DIR_V31).unwrap();
-
-        const N: usize = 1_000_000;
 
         let domains = [
             "google.com",
@@ -1191,10 +1186,10 @@ mod tests {
         generator.write_to_file(&path);
 
         let elapsed = enc_start.elapsed();
-        let size_mb = std::fs::metadata(&path).unwrap().len() as f64 / 1_048_576.0;
+        let size = std::fs::metadata(&path).unwrap().len();
 
         println!("Encrypted in {elapsed:.2?}");
-        println!("wrote v31/test05-1m.spass ({N} entries, {size_mb:.1} MB)");
+        println!("wrote v31/test05-1m.spass ({N} entries, {size} bytes)");
         println!("Password: {FIXTURE_PASSWORD}");
     }
 
@@ -1215,16 +1210,16 @@ mod tests {
     /// password; matches what App Store review notes will document).
     ///
     /// Run with:
-    ///   cargo test -p spass generate_demo_fixture -- --nocapture --ignored
+    ///   `cargo test -p spass generate_demo_fixture -- --nocapture --ignored`
     #[test]
     #[ignore = "fixture generator, not a test: writes a demo file into the repo"]
     fn generate_demo_fixture() {
-        std::fs::create_dir_all(FIXTURE_DIR_V30).unwrap();
-
         // Shared password for every entry. Looks like a real personal
         // password someone might pick; obviously a demo when seen in the
         // context of a product page.
         const ENTRY_PASSWORD: &str = "MorganFamily!2026";
+
+        std::fs::create_dir_all(FIXTURE_DIR_V30).unwrap();
 
         // 30 entries across the top 15 brands the iOS favicon directory
         // covers. Two entries per brand: usually personal + work, sometimes
@@ -1464,15 +1459,15 @@ mod tests {
             .entries(entries)
             .write_to_file(&path);
 
-        let size_kb = std::fs::metadata(&path).unwrap().len() as f64 / 1024.0;
-        println!("wrote v30/demo.spass (30 entries, {size_kb:.1} KB)");
+        let size = std::fs::metadata(&path).unwrap().len();
+        println!("wrote v30/demo.spass (30 entries, {size} bytes)");
         println!("File password:  {FIXTURE_PASSWORD}");
         println!("Entry password: {ENTRY_PASSWORD} (shared across all 30 entries)");
     }
 
     fn pipeline() -> DecryptionPipeline {
         // Use a low iteration count so tests run fast.
-        DecryptionPipeline::new(1_000)
+        DecryptionPipeline::new(std::num::NonZeroU32::new(1_000).unwrap())
     }
 
     fn generator() -> SpassGenerator {
@@ -1608,9 +1603,6 @@ mod tests {
 
     #[test]
     fn v30_round_trip_reports_known_v30_status() {
-        use crate::domain::VersionStatus;
-        use crate::format::SpassFormatVersion;
-
         let generator = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
         let content = generate_low_iter(&generator);
         let pw = EntryPassword::new(TEST_PASSWORD.to_string());
@@ -1629,9 +1621,6 @@ mod tests {
 
     #[test]
     fn v31_round_trip_reports_known_v31_status() {
-        use crate::domain::VersionStatus;
-        use crate::format::SpassFormatVersion;
-
         let generator = generator()
             .with_version(crate::format::SpassFormatVersion::V31)
             .entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
@@ -1653,8 +1642,6 @@ mod tests {
 
     #[test]
     fn known_version_empty_table_parses_to_zero_entries() {
-        use crate::domain::VersionStatus;
-
         // A valid export with zero saved passwords is not an error, and
         // the status stays Known -- no banner.
         let generator = generator().with_version(crate::format::SpassFormatVersion::V31);
@@ -1663,16 +1650,11 @@ mod tests {
         let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
 
         assert!(outcome.entries.is_empty());
-        assert!(matches!(
-            outcome.version_status,
-            VersionStatus::Known { .. }
-        ));
+        assert_matches!(outcome.version_status, VersionStatus::Known { .. });
     }
 
     #[test]
     fn known_version_missing_required_column_carries_report() {
-        use crate::domain::SpassError;
-
         // A v31-sentinel file whose header dropped a kept column must fail
         // loudly with the contribution report -- the name-resolution
         // protection that replaced the positional row-width tripwire.
@@ -1705,9 +1687,6 @@ mod tests {
 
     #[test]
     fn unknown_sentinel_routes_through_best_effort() {
-        use crate::domain::VersionStatus;
-        use crate::format::SpassFormatVersion;
-
         // 35-column wire shape + an unknown sentinel "33" -> pipeline should
         // detect unknown, run the schema parser, and surface BestEffort.
         let generator = generator()
@@ -1732,7 +1711,11 @@ mod tests {
         match outcome.version_status {
             VersionStatus::BestEffort { report } => {
                 assert_eq!(report.sentinel, "33");
-                assert!(report.missing_required_columns.is_empty());
+                assert!(
+                    report.missing_required_columns.is_empty(),
+                    "unexpected: {:?}",
+                    report.missing_required_columns
+                );
                 assert_eq!(report.entries_extracted, 1);
                 // canonical v31 header has all 5 required columns
                 assert_eq!(report.recognized_columns.len(), 5);

@@ -1,6 +1,7 @@
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
+use std::num::NonZeroU32;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::domain::{EntryPassword, SpassResult};
@@ -10,7 +11,7 @@ use crate::format::Salt;
 ///
 /// This is a format constant, not a security recommendation. Decrypting a real
 /// `.spass` file with any other value will produce garbage.
-pub const PBKDF2_ITERATIONS: u32 = 70_000;
+pub const PBKDF2_ITERATIONS: NonZeroU32 = NonZeroU32::new(70_000).unwrap();
 
 /// A 32-byte AES-256 key derived from a password. Zeroized on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -34,7 +35,7 @@ impl DerivedKey {
 /// exists for tests that want a faster derivation. Default
 /// constructor uses the format constant.
 pub struct KeyDerivation {
-    iterations: u32,
+    iterations: NonZeroU32,
 }
 
 impl KeyDerivation {
@@ -42,7 +43,7 @@ impl KeyDerivation {
     /// [`Self::default`] for production; this constructor exists for
     /// tests that want faster derivation.
     #[must_use]
-    pub fn new(iterations: u32) -> Self {
+    pub fn new(iterations: NonZeroU32) -> Self {
         Self { iterations }
     }
 
@@ -60,7 +61,7 @@ impl KeyDerivation {
         pbkdf2::<Hmac<Sha256>>(
             password.as_str().as_bytes(),
             salt.as_bytes(),
-            self.iterations,
+            self.iterations.get(),
             key.as_mut(),
         )
         .map_err(|_| crate::domain::SpassError::Decryption("Key derivation failed".to_string()))?;
@@ -82,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_key_derivation() {
-        let kd = KeyDerivation::new(1000);
+        let kd = KeyDerivation::new(NonZeroU32::new(1_000).unwrap());
         let password = EntryPassword::new("test_password".to_owned());
 
         let decoded = DecodedFile::builder().build();

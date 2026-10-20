@@ -17,7 +17,7 @@
 //! the buffer length, which `new` already enforced.
 
 use base64::{Engine, engine::general_purpose};
-use std::ops::{Deref, RangeInclusive};
+use std::ops::Deref;
 use std::path::Path;
 
 use crate::domain::{Hex, SpassError, SpassResult};
@@ -37,7 +37,10 @@ impl Salt<'_> {
     /// Always 20. Exposed so callers can `Deref::deref().len()`-style
     /// without remembering the const.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(
+        clippy::len_without_is_empty,
+        reason = "the length is fixed at 20, so an is_empty would always be false"
+    )]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -111,49 +114,46 @@ impl Deref for CipherText<'_> {
 ///
 /// Layout: `[0..20)` = salt, `[20..36)` = IV, `[36..)` = ciphertext.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct DecodedFile(Box<[u8]>);
+pub struct DecodedFile {
+    salt: [u8; 20],
+    iv: [u8; 16],
+    bytes: Box<[u8]>,
+}
 
 impl DecodedFile {
-    const SALT_RANGE: RangeInclusive<usize> = 0..=19;
-    const IV_RANGE: RangeInclusive<usize> = 20..=35;
-    const START_OF_CIPHER_RANGE: usize = 36;
+    const CIPHERTEXT_START: usize = 20 + 16;
 
     fn new(data: Vec<u8>) -> SpassResult<Self> {
-        if data.len() < Self::START_OF_CIPHER_RANGE {
+        let header = data
+            .split_first_chunk::<20>()
+            .and_then(|(salt, rest)| rest.first_chunk::<16>().map(|iv| (*salt, *iv)));
+        let Some((salt, iv)) = header else {
             return Err(SpassError::Parsing("Incomplete file header".to_string()));
-        }
-        Ok(DecodedFile(data.into_boxed_slice()))
+        };
+        Ok(DecodedFile {
+            salt,
+            iv,
+            bytes: data.into_boxed_slice(),
+        })
     }
 
-    /// # Panics
-    ///
-    /// Only if the internal buffer somehow has fewer than 20 bytes,
-    /// which `DecodedFile::new` already rejected. A panic here would
-    /// indicate a bug in `new`, not a malformed input file.
+    /// The 20-byte PBKDF2 salt.
     #[must_use]
     pub fn salt(&self) -> Salt<'_> {
-        let salt: &[u8; 20] = <&[u8; 20]>::try_from(&self.0[Self::SALT_RANGE])
-            .expect("DecodedFile header invariant violated: salt must be 20 bytes");
-        Salt(salt)
+        Salt(&self.salt)
     }
 
-    /// # Panics
-    ///
-    /// Only if the internal buffer somehow has fewer than 36 bytes,
-    /// which `DecodedFile::new` already rejected. A panic here would
-    /// indicate a bug in `new`, not a malformed input file.
+    /// The 16-byte AES-CBC initialization vector.
     #[must_use]
     pub fn iv(&self) -> InitializationVector<'_> {
-        let iv: &[u8; 16] = <&[u8; 16]>::try_from(&self.0[Self::IV_RANGE])
-            .expect("DecodedFile header invariant violated: IV must be 16 bytes");
-        InitializationVector(iv)
+        InitializationVector(&self.iv)
     }
 
     /// Encrypted payload region (everything after the 36-byte
     /// salt + IV header).
     #[must_use]
     pub fn ciphertext(&self) -> CipherText<'_> {
-        CipherText(&self.0[Self::START_OF_CIPHER_RANGE..])
+        CipherText(&self.bytes[Self::CIPHERTEXT_START..])
     }
 
     /// Test-only constructor that bypasses the Base64 decode step
@@ -162,11 +162,15 @@ impl DecodedFile {
     #[cfg(test)]
     #[must_use]
     pub fn from_components(salt: &[u8; 20], iv: &[u8; 16], ciphertext: &[u8]) -> Self {
-        let mut data = Vec::with_capacity(20 + 16 + ciphertext.len());
+        let mut data = Vec::with_capacity(Self::CIPHERTEXT_START + ciphertext.len());
         data.extend_from_slice(salt);
         data.extend_from_slice(iv);
         data.extend_from_slice(ciphertext);
-        DecodedFile(data.into_boxed_slice())
+        DecodedFile {
+            salt: *salt,
+            iv: *iv,
+            bytes: data.into_boxed_slice(),
+        }
     }
 
     /// Test-only entry to [`DecodedFileBuilder`] (defaults to
@@ -225,11 +229,7 @@ impl DecodedFileBuilder {
     /// running the Base64 step.
     #[must_use]
     pub fn build(self) -> DecodedFile {
-        let mut data = Vec::with_capacity(self.salt.len() + self.iv.len() + self.ciphertext.len());
-        data.extend_from_slice(&self.salt);
-        data.extend_from_slice(&self.iv);
-        data.extend_from_slice(&self.ciphertext);
-        DecodedFile(data.into_boxed_slice())
+        DecodedFile::from_components(&self.salt, &self.iv, &self.ciphertext)
     }
 }
 

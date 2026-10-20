@@ -26,6 +26,11 @@ use wasm_bindgen::prelude::*;
 /// `{ "kind": "unknown_version_unparseable", "report": { ... } }` (same
 /// enriched report shape) so the web consumer can render the same
 /// contribution UI it would for a successful best-effort parse.
+///
+/// # Errors
+///
+/// The rejected value is the error's message, or for an unknown version
+/// whose columns cannot be resolved, the JSON payload described above.
 #[wasm_bindgen]
 pub fn decrypt(file_text: &str, password: &str) -> Result<JsValue, JsValue> {
     let pipeline = DecryptionPipeline::default();
@@ -89,13 +94,13 @@ impl<'a> EnrichedReport<'a> {
 /// needs the diagnostic report to render the contribution prompt, so we
 /// serialise it instead of falling back to the bare error message.
 fn js_err_for(err: &SpassError) -> JsValue {
-    if let SpassError::UnknownVersionUnparseable(report) = err {
-        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+    if let SpassError::UnknownVersionUnparseable(report) = err
+        && let Ok(json) = serde_json::to_string(&serde_json::json!({
             "kind": "unknown_version_unparseable",
             "report": EnrichedReport::new(report),
-        })) {
-            return JsValue::from_str(&json);
-        }
+        }))
+    {
+        return JsValue::from_str(&json);
     }
     JsValue::from_str(&err.to_string())
 }

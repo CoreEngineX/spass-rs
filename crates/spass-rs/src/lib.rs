@@ -1,6 +1,5 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
-#![allow(clippy::module_name_repetitions)]
 // Blanket `clippy::pedantic` is deliberately NOT set here. The gated subset
 // lives in scripts/ci-check.sh as individual -W flags, matching what
 // `cex ci-check --rust` enforces org-wide; a crate-level blanket turns on the

@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{CliError, CliResult};
+use crate::output::formatter::scaled;
 
 /// Executes the info command.
 pub struct InfoCommand {
@@ -29,10 +30,11 @@ impl InfoCommand {
         // Try to decode the file structure (without decryption)
         let file_bytes = fs::read(&self.input).map_err(CliError::InputFileRead)?;
 
-        let decoder = SpassDecoder::new();
-        let decoded = decoder
+        let decoded = SpassDecoder::new()
             .decode_from_bytes(&file_bytes)
             .map_err(CliError::from)?;
+        let ciphertext_len =
+            u64::try_from(decoded.ciphertext().as_bytes().len()).unwrap_or(u64::MAX);
 
         // Display information
         println!();
@@ -40,10 +42,10 @@ impl InfoCommand {
         println!();
         println!("  {} {}", "Path:".bold(), self.input.display());
         println!(
-            "  {} {} bytes ({:.2} KB)",
+            "  {} {} bytes ({} KB)",
             "Size:".bold(),
             file_size,
-            file_size as f64 / 1024.0
+            scaled(file_size, 1024, 2)
         );
         println!();
 
@@ -52,10 +54,10 @@ impl InfoCommand {
         println!("  {} 20 bytes", "Salt length:".bold());
         println!("  {} 16 bytes", "IV length:".bold());
         println!(
-            "  {} {} bytes ({:.2} KB)",
+            "  {} {} bytes ({} KB)",
             "Ciphertext:".bold(),
-            decoded.ciphertext().as_bytes().len(),
-            decoded.ciphertext().as_bytes().len() as f64 / 1024.0
+            ciphertext_len,
+            scaled(ciphertext_len, 1024, 2)
         );
         println!();
 

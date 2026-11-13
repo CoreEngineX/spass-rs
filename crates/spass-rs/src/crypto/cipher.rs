@@ -3,6 +3,7 @@ use cbc::Decryptor;
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 use super::key_derivation::DerivedKey;
 use crate::domain::{DecryptedData, SpassError, SpassResult};
@@ -43,7 +44,8 @@ impl CipherEngine {
         key: &DerivedKey,
         iv: InitializationVector<'_>,
     ) -> SpassResult<DecryptedData> {
-        let mut buffer = ciphertext.as_bytes().to_vec();
+        // Decryption happens in place, so this holds plaintext on both paths.
+        let mut buffer = Zeroizing::new(ciphertext.as_bytes().to_vec());
 
         let decryptor = Aes256CbcDec::new(key.as_bytes().into(), iv.as_bytes().into());
 

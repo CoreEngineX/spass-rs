@@ -1,5 +1,7 @@
 use spass::SpassError;
-use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
+use spass::domain::{
+    BestEffortReport, EntryPassword, PasswordEntryCollection, ReportSource, VersionStatus,
+};
 use spass::pipeline::DecryptionPipeline;
 use wasm_bindgen::prelude::*;
 
@@ -55,11 +57,19 @@ pub fn decrypt(file_text: &str, password: &str) -> Result<JsValue, JsValue> {
         other => serde_json::to_value(other).map_err(|e| JsValue::from_str(&e.to_string()))?,
     };
 
-    let json = serde_json::json!({
-        "entries": &outcome.entries,
-        "version_status": version_status,
-    });
-    Ok(JsValue::from_str(&json.to_string()))
+    let json = serde_json::to_string(&DecryptResponse {
+        entries: &outcome.entries,
+        version_status,
+    })
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    Ok(JsValue::from_str(&json))
+}
+
+/// Serialised directly so the entries are never materialised as a `serde_json::Value` tree.
+#[derive(serde::Serialize)]
+struct DecryptResponse<'a> {
+    entries: &'a PasswordEntryCollection,
+    version_status: serde_json::Value,
 }
 
 /// Domain report plus the precomputed contribution strings. The eager

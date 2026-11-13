@@ -1218,7 +1218,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "spass",
- "thiserror",
  "zeroize",
 ]
 
@@ -1226,7 +1225,6 @@ dependencies = [
 name = "spass-cli"
 version = "0.3.0"
 dependencies = [
- "anyhow",
  "assert_cmd",
  "clap",
  "colored",
@@ -1251,7 +1249,6 @@ dependencies = [
 name = "spass-wasm"
 version = "0.3.0"
 dependencies = [
- "js-sys",
  "serde",
  "serde_json",
  "spass",

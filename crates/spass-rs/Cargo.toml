@@ -21,7 +21,6 @@ zeroize.workspace = true
 
 base64.workspace = true
 hex.workspace = true
-thiserror.workspace = true
 
 csv = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

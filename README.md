@@ -51,8 +51,9 @@ let password = EntryPassword::new("my_password".to_string());
 
 let outcome = pipeline.decrypt_file("passwords.spass", &password)?;
 
-for entry in outcome.entries.iter() {
-    println!("{}: {}", entry.name.as_str(), entry.username.as_str());
+// Each `EntryRef` borrows its fields from the one buffer; nothing is copied.
+for entry in &outcome.entries {
+    println!("{}: {}", entry.name, entry.username);
 }
 
 // Inspect whether the file's version sentinel was recognised.
@@ -77,9 +78,13 @@ match outcome.version_status {
 }
 ```
 
-`DecryptionPipeline::default()` uses the canonical `PBKDF2_ITERATIONS` constant (70 000). Pass `DecryptionPipeline::new(N)` to test with a lower iteration count in benchmarks.
+`DecryptionPipeline::default()` uses the canonical `PBKDF2_ITERATIONS` constant (70 000). Pass `DecryptionPipeline::new(NonZeroU32::new(N).unwrap())` to test with a lower iteration count in benchmarks.
 
-`pipeline.decrypt_file` and `decrypt_string` return a `DecryptOutcome` carrying both the extracted entries and a `VersionStatus`. The `Known` arm fires on the recognised sentinels (v30, v31, v32); `BestEffort { report }` fires on an unrecognised version.
+`pipeline.decrypt_file(path, &password)` and `pipeline.decrypt_to_buffer(&bytes, &password)` return a `DecryptOutcome` carrying the entries and a `VersionStatus`. The entries are one `EntryBuffer`: every kept field in a single allocation, read through `len()`, `get(i)` and `iter()` as borrowed `EntryRef<'_>` views, and zeroed when it is dropped. It is not `Clone`, so the plaintext has one owner. `CsvExporter::write` and `JsonExporter::write` take the buffer directly. The `Known` arm fires on the recognised sentinels (v30, v31, v32); `BestEffort { report }` fires on an unrecognised version.
+
+`decrypt_to_buffer` takes the file's bytes, not text: one leading UTF-8 byte order mark is skipped, and a file whose decoded size could pass the 100 MiB plaintext cap is refused before the Base64 step and before PBKDF2.
+
+The collection API of earlier releases (`PasswordEntry`, `PasswordEntryCollection`, the `parser` module and `decrypt_string`) is gone; this is a breaking release.
 
 ## CLI
 
@@ -110,7 +115,7 @@ cargo test -p spass generate_1m_fixture -- --nocapture --ignored
 
 ## Native bindings (Swift / iOS / macOS)
 
-`spass-uniffi` exposes the decrypt pipeline through [UniFFI](https://github.com/mozilla/uniffi-rs). Build it as a static library, drop the generated `.swift` file into your app target, and call the pipeline from Swift like any other library.
+`spass-uniffi` is the Swift and Kotlin boundary. The decrypted entries do not go through [UniFFI](https://github.com/mozilla/uniffi-rs): they cross as one buffer through two hand-written C functions declared in `crates/spass-uniffi/include/spass_entries.h`, and UniFFI carries only the version status, the errors and the ABI version check.
 
 Quick build (single iOS arch, simulator):
 
@@ -119,12 +124,13 @@ cargo build -p spass-uniffi --release \
   --target aarch64-apple-ios-sim
 ```
 
-For shipping to a real iOS app you'll want a multi-arch `.xcframework` covering `aarch64-apple-ios` (device) and `aarch64-apple-ios-sim` (simulator) -- the standard UniFFI build flow handles that. Do not set crypto target-feature flags (see Hardware crypto below).
+For a shipping app, `spass-ios/scripts/build-ios.sh` builds the device and simulator slices, generates the Swift bindings, adds `spass_entries.h` to the xcframework's module map, and assembles `SpassFFI.xcframework` (link it, never embed it). Do not set crypto target-feature flags (see Hardware crypto below).
 
-The bindings return an `FfiDecryptOutcome` record carrying:
+- `spass_decrypt_entries(file, file_len, password, password_len, &out, &status)` decrypts and hands the buffer over in one call. Code 0: `out` holds the buffer and `status` a lowered `FfiVersionStatus`, a union with cases `.known(version)` and `.bestEffort(report)`. Code 1: `status` holds a lowered `SpassFfiError`. Code 2: the core panicked and nothing was written. The caller lifts `status` with the generated converters.
+- `spass_entries_free(out)` zeroes and frees the buffer. Call it exactly once, with the struct `spass_decrypt_entries` wrote. The iOS app owns it through a `~Copyable` struct whose `deinit` calls it; the Android app through a file-private `AutoCloseable` used once.
+- `entries_abi_version()` is the one UniFFI function. Each app compares it with `SPASS_ENTRIES_ABI_VERSION` from the header at startup, which also runs UniFFI's own checksum checks.
 
-- `entries_json: String` -- the decrypted entries as a JSON-encoded array. One Swift string allocation instead of N struct marshals; decode on the Swift side with `JSONDecoder` against a matching Swift struct.
-- `version_status: FfiVersionStatus` -- a discriminated union with cases `.known(version)` and `.bestEffort(report)`. The report mirrors the Rust-side `BestEffortReport` and exposes the same pre-built `subject` / `body` / `githubIssueUrl` / `mailtoUrl` fields so the Swift layer can present a Mail-composer / Safari-view contribution prompt without reimplementing anything.
+The buffer layout (every kept field in slot order, then five little-endian `u32` end offsets per entry) is in `spass-docs/spass-core-api.md`, section 5.4. The report in a `bestEffort` status exposes pre-built `subject` / `body` / `githubIssueUrl` / `mailtoUrl` fields so an app can present a contribution prompt without reimplementing anything.
 
 The failure-path `SpassError::UnknownVersionUnparseable` surfaces as `SpassFfiError.UnknownVersion(report)` so the Swift catch arm can route directly to an "unsupported version" screen.
 
@@ -138,24 +144,9 @@ wasm-pack build crates/spass-wasm --target web --release
 
 That produces a `pkg/` directory with a `.wasm` blob, a TS-typed JS shim, and the type definitions. Import it from any modern bundler (Next.js, Vite, etc.).
 
-The exported `decrypt(file_text, password)` returns a JSON string of shape:
+The exported `decrypt_entries(file, password)` takes the file's bytes and returns a `DecryptedEntries` object that owns the buffer inside WebAssembly memory: `count()`, `bytes_ptr()`, `bytes_len()`, `index_offset()` and `version_status()`, a JSON string such as `{"kind":"known","version":"V30"}` or `{"kind":"best_effort","report":{...}}`. Read `version_status()` and the four numbers first, then make the views over `memory.buffer` and decode every field, then call `free()`, which zeroes the buffer. Any call into the module can grow its memory and detach a view, so nothing is called while a view is alive (`spass-web/lib/spass.ts` is the reference reader).
 
-```json
-{
-  "entries": [
-    {
-      "url": "...",
-      "username": "...",
-      "password": "...",
-      "name": "...",
-      "note": "..."
-    }
-  ],
-  "version_status": { "kind": "known", "version": "V30" }
-}
-```
-
-or with `"kind": "best_effort"` plus a `report` carrying the diagnostic. The failure-path `UnknownVersionUnparseable` is thrown as a JS error whose `message` is a JSON payload with `kind: "unknown_version_unparseable"` and the same `report` shape, so the consumer can catch + render an inline contribution panel without re-parsing.
+A failure rejects with the error's message, or for `UnknownVersionUnparseable` with a JSON payload of `kind: "unknown_version_unparseable"` and the same `report` shape, so the consumer can catch and render an inline contribution panel without re-parsing.
 
 There is no hardware crypto path in wasm; throughput is lower than native but well within interactive latency for typical file sizes.
 
@@ -168,7 +159,7 @@ There is no hardware crypto path in wasm; throughput is lower than native but we
 | V3.2             | Known -- default schema parser (same layout as v31) | `32` -- numeric                                 |
 | Future / unknown | Best-effort -- same schema parser                   | anything else (e.g. `33`) -- see below          |
 
-`SpassFormatVersion::detect()` in `crates/spass-rs/src/format/version.rs` reads the first newline-terminated line of decrypted plaintext and dispatches by wire family: v30 has its own parser; every 35-column version -- known or unknown -- goes through the one default schema parser at `crates/spass-rs/src/parser/schema.rs`.
+`SpassFormatVersion::detect()` in `crates/spass-rs/src/format/version.rs` reads the first newline-terminated line of decrypted plaintext and dispatches by wire family: v30 has its own decoder (`crates/spass-rs/src/entries/decode/v30.rs`); every 35-column version -- known or unknown -- goes through the one schema decoder at `crates/spass-rs/src/entries/decode/schema.rs`.
 
 Adding a future same-layout version means one new enum variant, one `detect()` arm, and one `wire_family()` line -- no parser code; consumers using the non-exhaustive enum will not break.
 
@@ -176,12 +167,12 @@ Note: historical versions of the in-tree testkit wrote the literal `30` for V3.0
 
 ## Unknown / future versions
 
-When Samsung ships a format we don't know yet, files route to the same default schema parser that serves v31/v32 (`crates/spass-rs/src/parser/schema.rs`) -- just tagged `BestEffort` instead of `Known`. The parser:
+When Samsung ships a format we don't know yet, files route to the same schema decoder that serves v31/v32 (`crates/spass-rs/src/entries/decode/schema.rs`) -- just tagged `BestEffort` instead of `Known`. The decoder:
 
 1. Reads the 35-column-shape header after the `next_table` marker.
-2. Walks the header looking for the 5 canonical column names we project to `PasswordEntry` (`origin_url`, `username_value`, `password_value`, `title`, `credential_memo`).
-3. If all 5 are present, tokenizes each row by looked-up index (not hardcoded position, so reordered or appended columns still parse).
-4. Returns the entries plus a `BestEffortReport` for the contribution loop.
+2. Walks the header looking for the 5 canonical column names it keeps (`origin_url`, `username_value`, `password_value`, `title`, `credential_memo`).
+3. If all 5 are present, reads each row's cells by looked-up index (not hardcoded position, so reordered or appended columns still parse) and writes the five kept fields into the `EntryBuffer`.
+4. Returns the buffer plus a `BestEffortReport` for the contribution loop.
 5. If any required column is absent, returns `SpassError::UnknownVersionUnparseable(Box<BestEffortReport>)` carrying the same diagnostic so the consumer can still build a contribution URL.
 
 The `BestEffortReport` carries header column-name metadata only -- **never row data**. It exposes pre-built `subject()` / `body(source)` / `github_issue_url(source)` / `mailto_url(to, source)` helpers so consumers don't reimplement the contribution-message format. The `ReportSource` argument (`IosApp` / `AndroidApp` / `WebApp` / `Cli`) stamps a closing "Sent from ..." line naming the platform; the subject and the rest of the body stay identical across platforms:
@@ -215,7 +206,7 @@ There is no hardware path in WebAssembly; `spass-wasm` runs the constant-time so
 
 ## Security
 
-- `EntryPassword`, `DerivedKey` and `DecryptedData` zeroize on drop, and so do the AES round keys and the CBC state (the `aes` and `cbc` `zeroize` features). Not wiped: the HMAC and PBKDF2 intermediate state, and the scratch buffer the decrypt runs in
+- `EntryPassword`, `DerivedKey` and the `EntryBuffer` zeroize on drop, and so do the AES round keys and the CBC state (the `aes` and `cbc` `zeroize` features). The decrypt runs in place in one zeroizing buffer, and every intermediate that holds plaintext (V30's first buffer, the per-row scratch, the exporters' output chunks) is zeroed when it is freed; no plaintext buffer grows by reallocation, which would free the old block unzeroed. Not wiped: the HMAC and PBKDF2 intermediate state, and whatever a consumer copies the fields into (Swift and Kotlin strings, JavaScript strings)
 - Constant-time 100 µs sleep on decryption failure prevents timing oracles
 - Passwords are never logged or included in error messages
 - CBC mode has no authentication tag -- a property of the `.spass` format itself, not a design choice here

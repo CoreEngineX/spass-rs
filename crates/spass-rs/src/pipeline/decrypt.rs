@@ -220,6 +220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_decrypt_with_invalid_salt() {
         let mut raw = vec![0u8; 36];
         raw.extend_from_slice(b"ciphertext123456");
@@ -231,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_decrypt_with_empty_ciphertext() {
         let file = STANDARD.encode([0u8; 36]);
 
@@ -241,6 +243,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_file_shorter_than_its_header_is_a_parsing_error() {
         let file = STANDARD.encode([0u8; 10]);
 
@@ -250,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_leading_byte_order_mark_and_whitespace_are_skipped() {
         let plain = fixture();
         let mut file = UTF8_BOM.to_vec();
@@ -262,6 +266,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_file_over_the_length_bound_is_refused_without_decoding() {
         let file = vec![b'A'; crate::format::MAX_FILE_LEN + 1];
 
@@ -271,6 +276,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_wrong_password_is_a_decryption_error() {
         let result =
             pipeline().decrypt_to_buffer(&fixture(), &EntryPassword::new("wrong".to_string()));

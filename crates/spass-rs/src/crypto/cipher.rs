@@ -158,6 +158,7 @@ mod tests {
     /// `tests/kat/*.plain` is `openssl enc -d -aes-256-cbc` output for the committed fixture it is
     /// named after, keyed by Python's `hashlib.pbkdf2_hmac`.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn v30_fixture_decrypts_to_openssl_plaintext() {
         assert_eq!(
             decrypt_fixture(include_bytes!(
@@ -168,6 +169,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn v31_fixture_decrypts_to_openssl_plaintext() {
         assert_eq!(
             decrypt_fixture(include_bytes!(
@@ -178,6 +180,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn unknown_version_fixture_decrypts_to_openssl_plaintext() {
         assert_eq!(
             decrypt_fixture(include_bytes!(

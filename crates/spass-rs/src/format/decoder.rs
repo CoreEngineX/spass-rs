@@ -19,8 +19,16 @@
 use base64::{Engine, engine::general_purpose};
 use std::ops::Deref;
 use std::path::Path;
+use zeroize::Zeroizing;
 
 use crate::domain::{Hex, SpassError, SpassResult};
+
+/// Splits the salt and IV off the front of a decoded file.
+fn split_header(data: &[u8]) -> Option<([u8; 20], [u8; 16])> {
+    let (salt, rest) = data.split_first_chunk::<20>()?;
+    let iv = rest.first_chunk::<16>()?;
+    Some((*salt, *iv))
+}
 
 /// 20-byte PBKDF2 salt extracted from the `.spass` header.
 #[derive(Debug, Clone, Copy)]
@@ -124,10 +132,7 @@ impl DecodedFile {
     const CIPHERTEXT_START: usize = 20 + 16;
 
     fn new(data: Vec<u8>) -> SpassResult<Self> {
-        let header = data
-            .split_first_chunk::<20>()
-            .and_then(|(salt, rest)| rest.first_chunk::<16>().map(|iv| (*salt, *iv)));
-        let Some((salt, iv)) = header else {
+        let Some((salt, iv)) = split_header(&data) else {
             return Err(SpassError::Parsing("Incomplete file header".to_string()));
         };
         Ok(DecodedFile {
@@ -233,6 +238,39 @@ impl DecodedFileBuilder {
     }
 }
 
+/// A `.spass` file Base64-decoded into one zeroizing buffer, its ciphertext still in place after
+/// the 36-byte header so it can be decrypted without a copy.
+pub(crate) struct DecodedBuffer {
+    salt: [u8; 20],
+    iv: [u8; 16],
+    bytes: Zeroizing<Vec<u8>>,
+}
+
+impl DecodedBuffer {
+    /// Where the ciphertext, and after decryption the plaintext, starts in the buffer.
+    pub(crate) const CIPHERTEXT_START: usize = DecodedFile::CIPHERTEXT_START;
+
+    pub(crate) fn salt(&self) -> Salt<'_> {
+        Salt(&self.salt)
+    }
+
+    pub(crate) fn ciphertext(&self) -> CipherText<'_> {
+        CipherText(&self.bytes[Self::CIPHERTEXT_START..])
+    }
+
+    /// The IV and the ciphertext to decrypt in place, borrowed apart.
+    pub(crate) fn iv_and_ciphertext_mut(&mut self) -> (InitializationVector<'_>, &mut [u8]) {
+        (
+            InitializationVector(&self.iv),
+            &mut self.bytes[Self::CIPHERTEXT_START..],
+        )
+    }
+
+    pub(crate) fn into_bytes(self) -> Zeroizing<Vec<u8>> {
+        self.bytes
+    }
+}
+
 /// Reads a `.spass` file from disk (or string) and produces a
 /// [`DecodedFile`]. The decoder validates the extension and runs the
 /// Base64 step; it does NOT decrypt -- pass the result through the
@@ -257,6 +295,16 @@ impl SpassDecoder {
     /// - `SpassError::Parsing` -- invalid Base64 or the decoded
     ///   payload is shorter than the 36-byte salt + IV header.
     pub fn decode_from_file<P: AsRef<Path>>(&self, path: P) -> SpassResult<DecodedFile> {
+        let file_bytes = self.read_file(path)?;
+        self.decode_from_bytes(&file_bytes)
+    }
+
+    /// Reads `path` after checking its `.spass` extension.
+    ///
+    /// # Errors
+    ///
+    /// `SpassError::Config` for a wrong or missing extension or an unreadable file.
+    pub(crate) fn read_file<P: AsRef<Path>>(&self, path: P) -> SpassResult<Vec<u8>> {
         match path.as_ref().extension() {
             Some(ext) if ext != "spass" => {
                 return Err(SpassError::Config(
@@ -267,10 +315,26 @@ impl SpassDecoder {
             Some(_) => {}
         }
 
-        let file_bytes = std::fs::read(path)
-            .map_err(|_| SpassError::Config("Could not open file".to_string()))?;
+        std::fs::read(path).map_err(|_| SpassError::Config("Could not open file".to_string()))
+    }
 
-        self.decode_from_bytes(&file_bytes)
+    /// Base64-decodes `text`, which must carry no surrounding whitespace, into one zeroizing
+    /// buffer sized once from the text length.
+    ///
+    /// # Errors
+    ///
+    /// `SpassError::Parsing` for invalid Base64 or a payload shorter than the 36-byte header.
+    pub(crate) fn decode_into_buffer(&self, text: &[u8]) -> SpassResult<DecodedBuffer> {
+        let mut bytes = Zeroizing::new(vec![0u8; base64::decoded_len_estimate(text.len())]);
+        let decoded_len = general_purpose::STANDARD
+            .decode_slice(text, &mut bytes[..])
+            .map_err(|_| SpassError::Parsing("Base64 decode error".to_string()))?;
+        bytes.truncate(decoded_len);
+
+        let Some((salt, iv)) = split_header(&bytes) else {
+            return Err(SpassError::Parsing("Incomplete file header".to_string()));
+        };
+        Ok(DecodedBuffer { salt, iv, bytes })
     }
 
     /// Decodes a Base64-encoded `.spass` payload from raw bytes. Use

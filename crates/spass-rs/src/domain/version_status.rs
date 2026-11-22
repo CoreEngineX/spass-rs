@@ -17,7 +17,7 @@
 
 use std::fmt::Write;
 
-use crate::domain::PasswordEntryCollection;
+use crate::entries::EntryBuffer;
 use crate::format::SpassFormatVersion;
 
 /// Diagnostic payload describing a file whose format version this crate
@@ -26,7 +26,7 @@ use crate::format::SpassFormatVersion;
 /// Populated by the schema parser. Contains only column-name metadata
 /// from the file's header, never row data. Consumers feed it into the
 /// helper methods below to build a contribution URL.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "export-json", derive(serde::Serialize))]
 pub struct BestEffortReport {
     /// The line-1 version string from the file (e.g. `"32"`), preserved
@@ -237,17 +237,18 @@ pub enum VersionStatus {
 }
 
 /// What [`crate::pipeline::DecryptionPipeline`] hands back when decryption
-/// succeeds: the extracted entries plus the version status.
+/// succeeds: every kept field in one [`EntryBuffer`] plus the version status.
+///
+/// Not `Clone`: a clone would be a second copy of the plaintext.
 ///
 /// `#[must_use]` because dropping the outcome silently throws away the
 /// `BestEffort` signal -- consumers should at minimum inspect
 /// [`Self::version_status`] before discarding it.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "export-json", derive(serde::Serialize))]
+#[derive(Debug)]
 #[must_use]
 pub struct DecryptOutcome {
-    /// Extracted password entries.
-    pub entries: PasswordEntryCollection,
+    /// The decrypted entries; zeroed when dropped.
+    pub entries: EntryBuffer,
     /// Whether the file's version sentinel was recognised.
     pub version_status: VersionStatus,
 }

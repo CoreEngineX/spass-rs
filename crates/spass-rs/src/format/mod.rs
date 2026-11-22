@@ -11,4 +11,7 @@ pub use decoder::DecodedFileBuilder;
 pub use validator::FormatValidator;
 pub use version::SpassFormatVersion;
 
+pub(crate) use decoder::DecodedBuffer;
+#[cfg(test)]
+pub(crate) use validator::MAX_FILE_LEN;
 pub(crate) use version::{DetectedVersion, WireFamily};

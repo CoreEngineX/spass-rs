@@ -159,7 +159,7 @@ fn besteffort_fixture_entries_match_generator() {
         assert_eq!(entry.username.as_str(), *username);
         assert_eq!(entry.name.as_str(), *name);
         assert!(
-            !entry.password.as_str().is_empty(),
+            !entry.password.is_empty(),
             "the password should not be empty"
         );
     }

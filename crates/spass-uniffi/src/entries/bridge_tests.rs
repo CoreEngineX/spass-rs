@@ -7,16 +7,14 @@
 
 use std::ptr;
 
-use spass::EntryBuffer;
-use spass::format::SpassFormatVersion;
-use spass::testkit::{SpassGenerator, TestEntry};
 use crate::entries::{
     SPASS_ENTRIES_FAILED, SPASS_ENTRIES_HANDED_OVER, SPASS_ENTRIES_PANICKED, SpassEntries,
     spass_decrypt_entries,
 };
-use crate::{
-    ENTRIES_ABI_VERSION, FfiVersionStatus, SpassFfiError, UniFfiTag, entries_abi_version,
-};
+use crate::{ENTRIES_ABI_VERSION, FfiVersionStatus, SpassFfiError, UniFfiTag, entries_abi_version};
+use spass::EntryBuffer;
+use spass::format::SpassFormatVersion;
+use spass::testkit::{SpassGenerator, TestEntry};
 use uniffi::RustBuffer;
 
 const TEST_PASSWORD: &str = "TestPassword123";

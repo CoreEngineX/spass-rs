@@ -11,12 +11,12 @@ use std::cell::Cell;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-use spass::format::SpassFormatVersion;
-use spass::testkit::{SpassGenerator, TestEntry};
 use crate::entries::{
     SPASS_ENTRIES_FAILED, SPASS_ENTRIES_HANDED_OVER, SpassEntries, spass_decrypt_entries,
     spass_entries_free,
 };
+use spass::format::SpassFormatVersion;
+use spass::testkit::{SpassGenerator, TestEntry};
 use uniffi::RustBuffer;
 
 const PASSWORD: &str = "TestPassword123";

@@ -2,6 +2,7 @@ use spass::EntryBuffer;
 use spass::domain::{DecryptOutcome, EntryPassword};
 use spass::pipeline::DecryptionPipeline;
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroize;
 
 mod payload;
 
@@ -19,7 +20,14 @@ pub struct DecryptedEntries {
 }
 
 impl DecryptedEntries {
-    fn decrypt(file: &[u8], password: &str) -> Result<Self, Failure> {
+    fn decrypt_and_zero(file: &[u8], password: &mut [u8]) -> Result<Self, Failure> {
+        let decrypted = Self::decrypt(file, password);
+        password.zeroize();
+        decrypted
+    }
+
+    fn decrypt(file: &[u8], password: &[u8]) -> Result<Self, Failure> {
+        let password = std::str::from_utf8(password).map_err(|_| Failure::PasswordNotUtf8)?;
         let password = EntryPassword::new(password.to_owned());
         let DecryptOutcome {
             entries,
@@ -62,15 +70,17 @@ impl DecryptedEntries {
     }
 }
 
-/// Decrypts a `.spass` file's bytes.
+/// Decrypts a `.spass` file's bytes with the UTF-8 `password`, then zeroes `password`. The
+/// zeroes are copied back into the caller's `Uint8Array`, so the module's copy and the caller's
+/// both end zeroed.
 ///
 /// # Errors
 ///
 /// Rejects with the error's message or, for an unknown version whose columns cannot be resolved,
 /// the string `{"kind":"unknown_version_unparseable","report":{...}}`.
 #[wasm_bindgen]
-pub fn decrypt_entries(file: &[u8], password: &str) -> Result<DecryptedEntries, JsValue> {
-    DecryptedEntries::decrypt(file, password)
+pub fn decrypt_entries(file: &[u8], password: &mut [u8]) -> Result<DecryptedEntries, JsValue> {
+    DecryptedEntries::decrypt_and_zero(file, password)
         .map_err(|failure| JsValue::from_str(&failure.payload()))
 }
 
@@ -126,14 +136,14 @@ mod tests {
     }
 
     fn decrypt(file: &str) -> DecryptedEntries {
-        match DecryptedEntries::decrypt(file.as_bytes(), PASSWORD) {
+        match DecryptedEntries::decrypt(file.as_bytes(), PASSWORD.as_bytes()) {
             Ok(decrypted) => decrypted,
             Err(failure) => panic!("decrypt failed: {}", failure.payload()),
         }
     }
 
     fn rejection(file: &str, password: &str) -> String {
-        match DecryptedEntries::decrypt(file.as_bytes(), password) {
+        match DecryptedEntries::decrypt(file.as_bytes(), password.as_bytes()) {
             Ok(_) => panic!("decrypt unexpectedly succeeded"),
             Err(failure) => failure.payload(),
         }
@@ -285,5 +295,30 @@ mod tests {
         );
 
         assert!(message.contains("Decryption failed"), "{message}");
+    }
+
+    #[test]
+    fn a_password_that_is_not_utf8_is_refused() {
+        let file = spass_file(SpassFormatVersion::V31, entries());
+
+        match DecryptedEntries::decrypt(file.as_bytes(), &[0xff, 0xfe]) {
+            Ok(_) => panic!("decrypt unexpectedly succeeded"),
+            Err(failure) => assert_eq!(failure.payload(), "the password is not valid UTF-8"),
+        }
+    }
+
+    #[test]
+    fn the_password_is_zeroed_after_the_call_either_way() {
+        let file = spass_file(SpassFormatVersion::V31, entries());
+        let mut right = PASSWORD.as_bytes().to_vec();
+        let mut wrong = b"wrong password".to_vec();
+
+        let decrypted = DecryptedEntries::decrypt_and_zero(file.as_bytes(), &mut right);
+        let rejected = DecryptedEntries::decrypt_and_zero(file.as_bytes(), &mut wrong);
+
+        assert!(decrypted.is_ok());
+        assert!(rejected.is_err());
+        assert!(right.iter().all(|&byte| byte == 0));
+        assert!(wrong.iter().all(|&byte| byte == 0));
     }
 }

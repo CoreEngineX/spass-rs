@@ -1,4 +1,4 @@
-//! Integration tests for the FFI bridge: the real `extern "C"` functions, called as the apps call
+//! Tests for the FFI bridge: the real `extern "C"` functions, called as the apps call
 //! them, with the status and errors lifted the way the generated bindings lift them.
 //!
 //! Fixtures are generated in-process via `spass::testkit` so the tests are self-contained. They do
@@ -10,11 +10,11 @@ use std::ptr;
 use spass::EntryBuffer;
 use spass::format::SpassFormatVersion;
 use spass::testkit::{SpassGenerator, TestEntry};
-use spass_uniffi::entries::{
+use crate::entries::{
     SPASS_ENTRIES_FAILED, SPASS_ENTRIES_HANDED_OVER, SPASS_ENTRIES_PANICKED, SpassEntries,
     spass_decrypt_entries,
 };
-use spass_uniffi::{
+use crate::{
     ENTRIES_ABI_VERSION, FfiVersionStatus, SpassFfiError, UniFfiTag, entries_abi_version,
 };
 use uniffi::RustBuffer;

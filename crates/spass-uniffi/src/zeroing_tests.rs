@@ -4,7 +4,7 @@
 //! A global allocator forwards to `System` and inspects what is freed: inside a window on the test
 //! thread, any freed block of 4 KiB or more must be all zero and none may be reallocated; the
 //! entry buffer itself is watched through `spass_entries_free`. One test function, because the
-//! counters are global.
+//! counters are global; other tests run on other threads, outside the window.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 use spass::format::SpassFormatVersion;
 use spass::testkit::{SpassGenerator, TestEntry};
-use spass_uniffi::entries::{
+use crate::entries::{
     SPASS_ENTRIES_FAILED, SPASS_ENTRIES_HANDED_OVER, SpassEntries, spass_decrypt_entries,
     spass_entries_free,
 };
@@ -76,7 +76,7 @@ unsafe impl GlobalAlloc for Checking {
                 DIRTY_FREES.fetch_add(1, Relaxed);
             }
         }
-        if ptr.addr() == WATCHED.load(Relaxed) {
+        if in_window() && ptr.addr() == WATCHED.load(Relaxed) {
             WATCHED_SIZE.store(layout.size(), Relaxed);
             // SAFETY: `ptr` is live until the `System.dealloc` below.
             if unsafe { is_zero(ptr, layout.size()) } {
@@ -172,8 +172,10 @@ fn nothing_is_left_behind() {
         WATCHED_DIRTY.store(0, Relaxed);
         WATCHED.store(out.ptr.addr(), Relaxed);
         let (len, cap) = (out.len, out.cap);
+        WINDOW.set(true);
         // SAFETY: `out` was written by `spass_decrypt_entries` and is freed once.
         unsafe { spass_entries_free(out) };
+        WINDOW.set(false);
         WATCHED.store(0, Relaxed);
 
         assert_eq!(

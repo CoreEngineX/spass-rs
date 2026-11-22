@@ -132,6 +132,10 @@ impl EntryBuffer {
     ///
     /// `raw` came from [`Self::into_raw_parts`] and has not been passed here before.
     #[must_use]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "taking the parts by value is what ends their life as a separate owner"
+    )]
     pub unsafe fn from_raw_parts(raw: RawEntryBuffer) -> Self {
         let RawEntryBuffer {
             ptr,

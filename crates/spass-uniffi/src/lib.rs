@@ -21,6 +21,8 @@ use spass::domain::{BestEffortReport, ReportSource, VersionStatus};
 use spass::format::SpassFormatVersion;
 
 pub mod entries;
+#[cfg(test)]
+mod zeroing_tests;
 
 uniffi::setup_scaffolding!();
 

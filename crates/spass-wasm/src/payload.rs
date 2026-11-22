@@ -60,6 +60,7 @@ fn error_payload(err: &SpassError) -> String {
 }
 
 pub(crate) enum Failure {
+    PasswordNotUtf8,
     Decrypt(SpassError),
     Status(serde_json::Error),
 }
@@ -79,6 +80,7 @@ impl From<serde_json::Error> for Failure {
 impl Failure {
     pub(crate) fn payload(&self) -> String {
         match self {
+            Self::PasswordNotUtf8 => "the password is not valid UTF-8".to_string(),
             Self::Decrypt(err) => error_payload(err),
             Self::Status(err) => err.to_string(),
         }

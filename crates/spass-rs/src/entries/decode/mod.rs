@@ -56,8 +56,15 @@ impl Ends {
         Ok(Self(Zeroizing::new(Vec::with_capacity(fields))))
     }
 
+    /// Refuses rather than grow: a reallocation would free the old offsets unzeroed.
     fn push(&mut self, end: usize) -> SpassResult<()> {
-        self.0.push(u32::try_from(end).map_err(|_| too_large())?);
+        let end = u32::try_from(end).map_err(|_| too_large())?;
+        if self.0.len() == self.0.capacity() {
+            return Err(SpassError::Parsing(
+                "Entry index is larger than reserved".to_string(),
+            ));
+        }
+        self.0.push(end);
         Ok(())
     }
 
@@ -146,6 +153,18 @@ mod tests {
             let span = trimmed_span(text);
             assert_eq!(&text[span], text.trim(), "{text:?}");
         }
+    }
+
+    #[test]
+    fn ends_refuse_to_grow_past_the_reservation() {
+        let mut ends = Ends::with_entries(1).unwrap();
+        let capacity = ends.0.capacity();
+        for end in 0..capacity {
+            ends.push(end).unwrap();
+        }
+
+        assert!(matches!(ends.push(capacity), Err(SpassError::Parsing(_))));
+        assert_eq!(ends.0.capacity(), capacity);
     }
 
     #[test]

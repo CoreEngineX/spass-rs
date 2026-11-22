@@ -32,7 +32,7 @@ pub const SPASS_ENTRIES_PANICKED: i32 = 2;
 /// What a call produced, before it is written to the caller's memory.
 enum Handover {
     HandedOver {
-        entries: SpassEntries,
+        entries: EntryBuffer,
         status: RustBuffer,
     },
     Failed {
@@ -59,14 +59,10 @@ fn decrypt(file: &[u8], password: &[u8]) -> Handover {
             entries,
             version_status,
         }) => {
-            // Lowered before the buffer is given up, so a panic here still frees it zeroed.
             let status = <FfiVersionStatus as uniffi::Lower<UniFfiTag>>::lower(
                 FfiVersionStatus::from(version_status),
             );
-            Handover::HandedOver {
-                entries: entries.into_raw_parts(),
-                status,
-            }
+            Handover::HandedOver { entries, status }
         }
         Err(error) => failed(SpassFfiError::from(error)),
     }
@@ -103,9 +99,10 @@ unsafe fn deliver(
             entries,
             status: lowered,
         }) => {
-            // SAFETY: valid for writes by the caller's guarantee; plain stores cannot panic.
+            // SAFETY: valid for writes by the caller's guarantee. Nothing between giving up the buffer
+            // and storing it can panic, so it is either still owned here or in the caller's hands.
             unsafe {
-                ptr::write(out, entries);
+                ptr::write(out, entries.into_raw_parts());
                 ptr::write(status, lowered);
             }
             SPASS_ENTRIES_HANDED_OVER
@@ -151,16 +148,22 @@ pub unsafe extern "C" fn spass_decrypt_entries(
     unsafe { deliver(out, status, body) }
 }
 
-/// Zeroes every byte of the capacity of `entries`, then frees it.
+/// Zeroes every byte of the capacity of `entries`, then frees it. A null `ptr` is ignored.
 ///
 /// # Safety
 ///
 /// `entries` is what [`spass_decrypt_entries`] wrote to `*out`, passed back unchanged, exactly once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spass_entries_free(entries: SpassEntries) {
+    if entries.ptr.is_null() {
+        return;
+    }
     // SAFETY: `entries` came from `spass_decrypt_entries` and is passed here once.
     drop(unsafe { EntryBuffer::from_raw_parts(entries) });
 }
+
+#[cfg(test)]
+mod bridge_tests;
 
 #[cfg(test)]
 mod tests {
@@ -231,6 +234,14 @@ mod tests {
     }
 
     #[test]
+    fn freeing_a_null_buffer_does_nothing() {
+        let mut entries = untouched();
+        entries.cap = 0;
+        // SAFETY: a null `ptr` is never dereferenced.
+        unsafe { spass_entries_free(entries) };
+    }
+
+    #[test]
     fn the_c_struct_is_five_words() {
         assert_eq!(size_of::<SpassEntries>(), 5 * size_of::<usize>());
         for (index, offset) in [
@@ -265,6 +276,17 @@ mod tests {
                 .and_then(|value| value.parse().ok())
                 .unwrap_or_else(|| panic!("{name} has no numeric value"))
         };
+        let fields: Vec<&str> = header
+            .split_once("typedef struct SpassEntries {")
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .expect("the header declares struct SpassEntries")
+            .0
+            .split(';')
+            .filter_map(|field| field.split_whitespace().last())
+            .map(|name| name.trim_start_matches('*'))
+            .collect();
+
+        assert_eq!(fields, ["ptr", "len", "cap", "count", "index_offset"]);
 
         assert_eq!(
             define("SPASS_ENTRIES_ABI_VERSION"),

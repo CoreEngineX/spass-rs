@@ -9,15 +9,31 @@
 //! links via an xcframework, with Swift bindings generated at build time by
 //! `uniffi-bindgen`.
 //!
+//! The decrypted entries do not cross through `UniFFI`: [`entries`] hands them over in one buffer
+//! through two hand-written C functions. `UniFFI` carries the error, report and version-status
+//! types those functions lower, and [`entries_abi_version`], which the apps check at launch.
+//!
 //! See `spass-docs/rfc/001-ios-uniffi-bridge.md` for the bridge design and
 //! `spass-docs/rfc/012-best-effort-fallback.md` for the version-status
-//! surface returned from [`decrypt`].
+//! surface.
 
-use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
+use spass::domain::{BestEffortReport, ReportSource, VersionStatus};
 use spass::format::SpassFormatVersion;
-use spass::pipeline::DecryptionPipeline;
+
+pub mod entries;
 
 uniffi::setup_scaffolding!();
+
+/// Layout version of the C functions in [`entries`] and `include/spass_entries.h`.
+pub const ENTRIES_ABI_VERSION: u32 = 1;
+
+/// [`ENTRIES_ABI_VERSION`]. Each app compares it with its own copy at startup. It is exported
+/// through `UniFFI` on purpose: calling it runs `UniFFI`'s contract-version and checksum checks too.
+#[uniffi::export]
+#[must_use]
+pub fn entries_abi_version() -> u32 {
+    ENTRIES_ABI_VERSION
+}
 
 /// FFI-facing error.
 ///
@@ -78,9 +94,6 @@ impl From<spass::SpassError> for SpassFfiError {
             spass::SpassError::Parsing(s) | spass::SpassError::Validation(s) => {
                 Self::InvalidFormat { detail: s }
             }
-            spass::SpassError::Csv(e) => Self::InvalidFormat {
-                detail: e.to_string(),
-            },
             spass::SpassError::Io(e) => Self::Internal {
                 detail: e.to_string(),
             },
@@ -225,71 +238,4 @@ fn format_version_name(v: SpassFormatVersion) -> String {
         _ => "Unknown",
     }
     .to_string()
-}
-
-/// Wire shape returned by [`decrypt`]: entries as JSON (same format the
-/// Swift layer already parses) plus a structured version status.
-///
-/// Kept as a single struct so iOS receives the version signal alongside
-/// the entries in one call -- no separate round trip needed.
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct FfiDecryptOutcome {
-    /// Entries as a JSON-encoded array. Compact, same shape as
-    /// `spass-wasm`'s `entries` field. Each element has `url`, `username`,
-    /// `password`, `name`, `note`.
-    pub entries_json: String,
-    /// Strict path vs lenient-fallback path.
-    pub version_status: FfiVersionStatus,
-}
-
-/// Decrypt a `.spass` file's text content and return entries + version
-/// status.
-///
-/// `file_text` is the Base64 content of the file, exactly as Samsung Pass
-/// writes it. `password` is the export password the user chose when
-/// creating the file.
-///
-/// `FfiDecryptOutcome::entries_json` is a compact JSON-encoded array. Each
-/// element has `url`, `username`, `password`, `name`, `note` -- always
-/// present, never `null`. Empty collection serialises as `"[]"`. Same wire
-/// shape `spass-wasm` returns to the web app.
-///
-/// Runs PBKDF2 at the production iteration count (70,000), which dominates
-/// the runtime - expect 100-300 ms on iPhone XS, sub-50 ms on iPhone 15.
-///
-/// # Errors
-///
-/// - [`SpassFfiError::WrongPassword`] if the password is wrong or the
-///   ciphertext is corrupt.
-/// - [`SpassFfiError::InvalidFormat`] if the file is not a valid `.spass`
-///   export.
-/// - [`SpassFfiError::UnknownVersion`] if the file's version sentinel is
-///   unrecognised AND the lenient parser couldn't resolve all 5 required
-///   columns. The report carries the diagnostic for the contribution UI.
-/// - [`SpassFfiError::Internal`] for I/O failures, configuration
-///   mismatches, or the (theoretically impossible) JSON serialisation
-///   failure on the result.
-#[uniffi::export]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "UniFFI hands exported functions owned strings"
-)]
-#[expect(
-    clippy::result_large_err,
-    reason = "only the rare unknown-version error carries the large report"
-)]
-pub fn decrypt(file_text: String, password: String) -> Result<FfiDecryptOutcome, SpassFfiError> {
-    let pipeline = DecryptionPipeline::default();
-    let pw = EntryPassword::new(password);
-    let outcome = pipeline.decrypt_string(&file_text, &pw)?;
-
-    let entries_json =
-        serde_json::to_string(&outcome.entries).map_err(|e| SpassFfiError::Internal {
-            detail: e.to_string(),
-        })?;
-
-    Ok(FfiDecryptOutcome {
-        entries_json,
-        version_status: FfiVersionStatus::from(outcome.version_status),
-    })
 }

@@ -37,12 +37,12 @@ pub enum CliError {
 impl From<SpassError> for CliError {
     fn from(err: SpassError) -> Self {
         match err {
-            SpassError::Io(e) => CliError::InputFileRead(e),
+            SpassError::Io(e) => CliError::OutputWrite(e.to_string()),
             SpassError::Decryption(msg) => CliError::Decryption(msg),
             SpassError::Parsing(msg) => CliError::Parsing(msg),
             SpassError::Validation(msg) => CliError::Validation(msg),
             SpassError::Config(msg) => CliError::Config(msg),
-            SpassError::Csv(e) => CliError::InvalidFormat(e.to_string()),
+            SpassError::UnknownVersionUnparseable(_) => CliError::InvalidFormat(err.to_string()),
             _ => CliError::Other(format!("Unexpected error: {err}")),
         }
     }

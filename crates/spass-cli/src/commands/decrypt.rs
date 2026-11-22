@@ -2,11 +2,11 @@
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use spass::SpassError;
 use spass::domain::{BestEffortReport, EntryPassword, ReportSource, VersionStatus};
 use spass::pipeline::DecryptionPipeline;
+use spass::{DecryptOutcome, EntryBuffer, SpassError};
 use std::fs::File;
-use std::io::{self, BufWriter};
+use std::io;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
@@ -81,12 +81,18 @@ impl DecryptCommand {
             }
         };
 
-        self.write_output(&outcome.entries)?;
-        OutputFormatter::display_summary(&outcome.entries);
+        let DecryptOutcome {
+            entries,
+            version_status,
+        } = outcome;
+        self.write_output(&entries)?;
+        OutputFormatter::display_summary(&entries);
+        // Zeroes the plaintext before the contribution block and any process exit.
+        drop(entries);
 
         // Print the contribution block AFTER the summary so the success
         // output is the first thing the user sees on a partial-success run.
-        if let VersionStatus::BestEffort { ref report } = outcome.version_status {
+        if let VersionStatus::BestEffort { ref report } = version_status {
             print_best_effort_block(report, /* succeeded */ true);
         }
 
@@ -108,13 +114,12 @@ impl DecryptCommand {
         Ok(EntryPassword::new(password_str))
     }
 
-    fn write_output(&self, collection: &spass::domain::PasswordEntryCollection) -> CliResult<()> {
+    fn write_output(&self, entries: &EntryBuffer) -> CliResult<()> {
         if let Some(ref output_path) = self.output {
-            let file = File::create(output_path)
+            let mut file = File::create(output_path)
                 .map_err(|e| CliError::OutputWrite(format!("Failed to create output file: {e}")))?;
 
-            let mut writer = BufWriter::new(file);
-            OutputFormatter::write(&mut writer, collection, self.format)?;
+            OutputFormatter::write(&mut file, entries, self.format)?;
 
             println!(
                 "  {} {}",
@@ -124,7 +129,7 @@ impl DecryptCommand {
         } else {
             let stdout = io::stdout();
             let mut writer = stdout.lock();
-            OutputFormatter::write(&mut writer, collection, self.format)?;
+            OutputFormatter::write(&mut writer, entries, self.format)?;
         }
 
         Ok(())

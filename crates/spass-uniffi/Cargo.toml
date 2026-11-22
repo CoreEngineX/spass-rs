@@ -11,15 +11,11 @@ publish = false
 name = "spass_uniffi"
 crate-type = ["staticlib", "cdylib"]
 
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/bin/uniffi-bindgen.rs"
-
 [dependencies]
 spass = { path = "../spass-rs" }
-uniffi = { workspace = true, features = ["cli"] }
+uniffi = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-# `spass::testkit` generates .spass fixtures in-process for the integration tests. Test builds only.
+# `spass::testkit` generates .spass fixtures in-process for the tests. Test builds only.
 spass = { path = "../spass-rs", features = ["generate-fixtures"] }

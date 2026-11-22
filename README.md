@@ -27,8 +27,10 @@ Samsung Pass only exports passwords as encrypted `.spass` files that restore on 
 crates/
   spass-rs/        Core library -- pure Rust, no FFI. Published to crates.io as `spass`.
   spass-cli/       Command-line binary built on top of spass-rs.
-  spass-uniffi/    Swift bindings via UniFFI. Build into a static library + `.swift`
-                   files; drop into any iOS / macOS / visionOS app target.
+  spass-uniffi/    Swift and Kotlin bindings via UniFFI, plus the C entry-buffer handover.
+                   Builds a static library (iOS) and a shared library (Android).
+  spass-uniffi-bindgen/  The `uniffi-bindgen` binary that generates those bindings; kept
+                   apart so uniffi's `cli` feature never reaches the shipped library.
   spass-wasm/      wasm-bindgen wrapper compiled to `wasm32-unknown-unknown`. Build with
                    `wasm-pack` and drop the resulting `pkg/` into any browser app.
 ```

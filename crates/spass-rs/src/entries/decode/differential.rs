@@ -744,7 +744,7 @@ fn v30_raw_invalid_utf8_in_a_kept_field_is_a_parsing_error() {
 struct Rng(u64);
 
 impl Rng {
-    fn next(&mut self) -> u64 {
+    fn next_u64(&mut self) -> u64 {
         self.0 ^= self.0 >> 12;
         self.0 ^= self.0 << 25;
         self.0 ^= self.0 >> 27;
@@ -752,7 +752,7 @@ impl Rng {
     }
 
     fn below(&mut self, n: usize) -> usize {
-        usize::try_from(self.next() % u64::try_from(n).unwrap()).unwrap()
+        usize::try_from(self.next_u64() % u64::try_from(n).unwrap()).unwrap()
     }
 
     fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
@@ -877,10 +877,13 @@ fn random_v30_text(rng: &mut Rng) -> String {
     text
 }
 
+/// Miri runs the same cases a few at a time.
+const ROUNDS: usize = if cfg!(miri) { 12 } else { 400 };
+
 #[test]
 fn schema_random_plaintexts() {
     let mut rng = Rng(0x5EED_0001);
-    for _ in 0..if cfg!(miri) { 12 } else { 400 } {
+    for _ in 0..ROUNDS {
         let text = random_schema_text(&mut rng);
         let _ = schema(
             if text.starts_with("33") { "33" } else { "31" },
@@ -892,7 +895,7 @@ fn schema_random_plaintexts() {
 #[test]
 fn v30_random_plaintexts() {
     let mut rng = Rng(0x5EED_0002);
-    for _ in 0..if cfg!(miri) { 12 } else { 400 } {
+    for _ in 0..ROUNDS {
         let text = random_v30_text(&mut rng);
         let _ = v30(text.as_bytes());
     }

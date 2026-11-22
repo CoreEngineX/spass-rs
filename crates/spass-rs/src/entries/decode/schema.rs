@@ -112,7 +112,9 @@ pub(crate) fn decode_schema(
         (header_text.to_owned(), columns, header.next)
     };
 
-    let max_rows = memchr_iter(b'\n', &bytes[start + first_row..end]).count() + 1;
+    // A row holds at least four `;` and a line break.
+    let rows = &bytes[start + first_row..end];
+    let max_rows = (memchr_iter(b'\n', rows).count() + 1).min(rows.len() / 5 + 1);
     let mut ends = Ends::with_entries(max_rows)?;
     let mut scratch = RowScratch::new();
     let mut write = 0;
@@ -203,12 +205,8 @@ fn is_table_end(line: &[u8]) -> bool {
         .iter()
         .copied()
         .find(|&byte| !matches!(byte, b' ' | b'\t' | b'\n' | 0x0B | 0x0C | b'\r'));
-    match first {
-        Some(b'n' | 0x80..=0xFF) => {
-            std::str::from_utf8(line).is_ok_and(|text| text.trim() == "next_table")
-        }
-        Some(_) | None => false,
-    }
+    matches!(first, Some(b'n' | 0x80..=0xFF))
+        && std::str::from_utf8(line).is_ok_and(|text| text.trim() == "next_table")
 }
 
 /// Where each kept column sits in the header.

@@ -73,13 +73,14 @@ pub(crate) fn decode_v30(plain: Plaintext) -> SpassResult<EntryBuffer> {
     seal(out, write, &ends)
 }
 
-/// The most records `table` can hold: one per line break, and one for a last line without one.
+/// The most records `table` can hold: one per line break, and one for a last line without one,
+/// and no more than its length allows at four commas and a line break each.
 fn record_bound(table: &[u8]) -> usize {
     let line_feeds = memchr_iter(b'\n', table).count();
     let bare_returns = memchr_iter(b'\r', table)
         .filter(|&at| table.get(at + 1) != Some(&b'\n'))
         .count();
-    line_feeds + bare_returns + 1
+    (line_feeds + bare_returns + 1).min(table.len() / 5 + 2)
 }
 
 /// Checks the header record `ends` describes at the start of `out`.

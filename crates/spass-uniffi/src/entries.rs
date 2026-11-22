@@ -103,8 +103,7 @@ unsafe fn deliver(
             entries,
             status: lowered,
         }) => {
-            // SAFETY: valid for writes by the caller's guarantee; plain stores cannot panic, so
-            // the raw parts are never left without an owner.
+            // SAFETY: valid for writes by the caller's guarantee; plain stores cannot panic.
             unsafe {
                 ptr::write(out, entries);
                 ptr::write(status, lowered);

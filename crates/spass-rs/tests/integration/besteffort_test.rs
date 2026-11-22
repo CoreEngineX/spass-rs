@@ -28,6 +28,7 @@ use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
+use spass::EntryBuffer;
 use spass::domain::{EntryPassword, ReportSource, SpassError, VersionStatus};
 use spass::format::SpassFormatVersion;
 use spass::pipeline::DecryptionPipeline;
@@ -50,6 +51,28 @@ fn production_pipeline() -> DecryptionPipeline {
 
 fn password() -> EntryPassword {
     EntryPassword::new(TEST_PASSWORD.to_string())
+}
+
+/// One entry with owned fields, so assertions can name them.
+struct Row {
+    url: String,
+    username: String,
+    password: String,
+    name: String,
+    note: String,
+}
+
+fn rows(entries: &EntryBuffer) -> Vec<Row> {
+    entries
+        .iter()
+        .map(|entry| Row {
+            url: entry.url.to_owned(),
+            username: entry.username.to_owned(),
+            password: entry.password.to_owned(),
+            name: entry.name.to_owned(),
+            note: entry.note.to_owned(),
+        })
+        .collect()
 }
 
 fn sample_entries() -> Vec<TestEntry> {
@@ -111,7 +134,7 @@ fn besteffort_fixture_entries_match_generator() {
     let outcome = production_pipeline()
         .decrypt_file(FIXTURE_PATH, &password())
         .expect("besteffort fixture should decrypt");
-    let entries = outcome.entries.entries();
+    let entries = rows(&outcome.entries);
 
     // Mirrors what testkit's `generate_besteffort_fixture` writes.
     let expected = [
@@ -136,7 +159,7 @@ fn besteffort_fixture_entries_match_generator() {
         assert_eq!(entry.username.as_str(), *username);
         assert_eq!(entry.name.as_str(), *name);
         assert!(
-            !entry.password.as_str().is_empty(),
+            !entry.password.is_empty(),
             "the password should not be empty"
         );
     }
@@ -290,7 +313,7 @@ fn build_v31_shape_with_sentinel(sentinel: &str, entries: Vec<TestEntry>) -> Str
 fn sentinel_32_decrypts_as_known_v32() {
     let blob = build_v31_shape_with_sentinel("32", sample_entries());
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), sample_entries().len());
     match outcome.version_status {
@@ -307,7 +330,7 @@ fn sentinel_32_decrypts_as_known_v32() {
 /// could.
 fn assert_known_v32(blob: &str) {
     let outcome = production_pipeline()
-        .decrypt_string(blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), sample_entries().len());
     assert!(
@@ -320,7 +343,7 @@ fn assert_known_v32(blob: &str) {
         "expected Known V32, got {:?}",
         outcome.version_status
     );
-    for (got, want) in outcome.entries.entries().iter().zip(sample_entries()) {
+    for (got, want) in rows(&outcome.entries).iter().zip(sample_entries()) {
         assert_eq!(got.url.as_str(), want.url);
         assert_eq!(got.username.as_str(), want.username);
         assert_eq!(got.password.as_str(), want.password);
@@ -390,7 +413,7 @@ fn v32_missing_a_required_column_reports_unparseable() {
         .generate();
 
     let err = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap_err();
     match err {
         SpassError::UnknownVersionUnparseable(report) => {
@@ -405,7 +428,7 @@ fn v32_missing_a_required_column_reports_unparseable() {
 fn sentinel_33_routes_through_besteffort() {
     let blob = build_v31_shape_with_sentinel("33", sample_entries());
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     match outcome.version_status {
         VersionStatus::BestEffort { report } => assert_eq!(report.sentinel, "33"),
@@ -420,7 +443,7 @@ fn sentinel_with_letters_routes_through_besteffort() {
     // the header, not by sentinel value.
     let blob = build_v31_shape_with_sentinel("v32-beta", sample_entries());
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     match outcome.version_status {
         VersionStatus::BestEffort { report } => assert_eq!(report.sentinel, "v32-beta"),
@@ -433,7 +456,7 @@ fn very_long_sentinel_preserved_in_report() {
     let long_sentinel = "spass_export_v_future_with_a_long_descriptive_name_2030_q4";
     let blob = build_v31_shape_with_sentinel(long_sentinel, sample_entries());
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     match outcome.version_status {
         VersionStatus::BestEffort { report } => assert_eq!(report.sentinel, long_sentinel),
@@ -469,11 +492,11 @@ fn lenient_handles_reordered_canonical_columns() {
         .generate();
 
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), 3);
 
-    let entries = outcome.entries.entries();
+    let entries = rows(&outcome.entries);
     assert_eq!(entries[0].url.as_str(), "https://accounts.google.com");
     assert_eq!(entries[0].username.as_str(), "user@gmail.com");
     assert_eq!(entries[0].password.as_str(), "GooglePass!1");
@@ -511,7 +534,7 @@ fn lenient_handles_extra_columns_appended_to_canonical() {
         .generate();
 
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), 3);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
@@ -562,9 +585,9 @@ fn lenient_handles_extra_columns_inserted_between_canonical() {
         .generate();
 
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
-    let entries = outcome.entries.entries();
+    let entries = rows(&outcome.entries);
     assert_eq!(entries[0].username.as_str(), "user@gmail.com");
     assert_eq!(entries[0].password.as_str(), "GooglePass!1");
 }
@@ -591,7 +614,7 @@ fn lenient_handles_minimal_header_with_only_required_columns() {
         .generate();
 
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), 3);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
@@ -634,7 +657,7 @@ fn missing_password_column_produces_unparseable_with_diagnostic() {
         .generate();
 
     let err = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap_err();
     match err {
         SpassError::UnknownVersionUnparseable(report) => {
@@ -669,7 +692,7 @@ fn missing_multiple_required_columns_lists_all_in_report() {
         .generate();
 
     let err = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap_err();
     match err {
         SpassError::UnknownVersionUnparseable(report) => {
@@ -709,7 +732,7 @@ fn all_required_columns_missing_returns_full_diagnostic() {
         .generate();
 
     let err = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap_err();
     match &err {
         SpassError::UnknownVersionUnparseable(report) => {
@@ -750,7 +773,7 @@ fn unparseable_error_display_contains_sentinel_and_missing() {
         .generate();
 
     let err = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap_err();
     let s = err.to_string();
     assert!(s.contains("v33-experimental"), "got: {s}");
@@ -773,9 +796,9 @@ fn lenient_round_trips_unicode_in_entries() {
 
     let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
-    let e = &outcome.entries.entries()[0];
+    let e = &rows(&outcome.entries)[0];
     assert_eq!(e.url.as_str(), "https://accounts.example.中国");
     assert_eq!(e.username.as_str(), "user.李四@example.com");
     assert_eq!(e.password.as_str(), "P@sswörd-with-emoji-🔐");
@@ -806,9 +829,9 @@ fn lenient_round_trips_android_uri_entries() {
 
     let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
-    let entries = outcome.entries.entries();
+    let entries = rows(&outcome.entries);
     assert!(entries[0].url.as_str().starts_with("android://com.samsung"));
     assert!(entries[1].url.as_str().starts_with("android://com.netflix"));
 }
@@ -828,12 +851,9 @@ fn lenient_round_trips_long_field_values() {
 
     let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
-    assert_eq!(
-        outcome.entries.entries()[0].password.as_str(),
-        long_password
-    );
+    assert_eq!(rows(&outcome.entries)[0].password.as_str(), long_password);
 }
 
 #[test]
@@ -851,9 +871,9 @@ fn lenient_round_trips_empty_note_via_absent_sentinel() {
 
     let blob = build_v31_shape_with_sentinel("33", entries);
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
-    assert_eq!(outcome.entries.entries()[0].note.as_str(), "");
+    assert_eq!(rows(&outcome.entries)[0].note.as_str(), "");
 }
 
 // =============================================================================
@@ -868,7 +888,7 @@ fn wrong_password_on_unknown_version_fails_at_crypto_layer() {
     // error path.
     let blob = build_v31_shape_with_sentinel("33", sample_entries());
     let err = production_pipeline()
-        .decrypt_string(&blob, &EntryPassword::new("WrongPassword".into()))
+        .decrypt_to_buffer(blob.as_bytes(), &EntryPassword::new("WrongPassword".into()))
         .unwrap_err();
     match err {
         SpassError::Decryption(_) => {}
@@ -887,7 +907,7 @@ fn unknown_version_with_zero_entries_succeeds_with_empty_collection() {
     // the consumer can show an "all good but nothing to import" state.
     let blob = build_v31_shape_with_sentinel("33", Vec::new());
     let outcome = production_pipeline()
-        .decrypt_string(&blob, &password())
+        .decrypt_to_buffer(blob.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), 0);
     if let VersionStatus::BestEffort { report } = outcome.version_status {
@@ -949,7 +969,7 @@ fn besteffort_doesnt_validate_version_specific_marker_line() {
     let encoded = BASE64.encode(&blob);
 
     let outcome = production_pipeline()
-        .decrypt_string(&encoded, &password())
+        .decrypt_to_buffer(encoded.as_bytes(), &password())
         .unwrap();
     assert_eq!(outcome.entries.len(), 1);
     if let VersionStatus::BestEffort { report } = outcome.version_status {

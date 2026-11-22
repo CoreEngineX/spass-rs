@@ -9,24 +9,13 @@ publish = false
 
 [lib]
 name = "spass_uniffi"
-crate-type = ["staticlib", "cdylib", "lib"]
-
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/bin/uniffi-bindgen.rs"
+crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-# `export-json` pulls in the Serialize impls on PasswordEntry / Collection
-# so we can serde_json::to_string the result. Same shape as spass-wasm.
-spass = { path = "../spass-rs", features = ["export-json"] }
-uniffi = { workspace = true, features = ["cli"] }
+spass = { path = "../spass-rs" }
+uniffi = { workspace = true }
 thiserror = { workspace = true }
-serde_json = { workspace = true }
 
 [dev-dependencies]
-# Pulls in spass::testkit so integration tests can generate .spass fixtures
-# in-process. Activated only for test builds; production binaries don't see it.
-# Composes with the export-json feature in [dependencies]; both stay enabled.
-spass = { path = "../spass-rs", features = ["export-json", "generate-fixtures"] }
-# Tests parse the JSON returned by decrypt() to assert structure.
-serde_json = { workspace = true }
+# `spass::testkit` generates .spass fixtures in-process for the tests. Test builds only.
+spass = { path = "../spass-rs", features = ["generate-fixtures"] }

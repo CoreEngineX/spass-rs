@@ -3,11 +3,10 @@ use cbc::Decryptor;
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
-use zeroize::Zeroizing;
 
 use super::key_derivation::DerivedKey;
-use crate::domain::{DecryptedData, SpassError, SpassResult};
-use crate::format::{CipherText, InitializationVector};
+use crate::domain::{SpassError, SpassResult};
+use crate::format::InitializationVector;
 
 type Aes256CbcDec = Decryptor<Aes256>;
 
@@ -18,7 +17,7 @@ type Aes256CbcDec = Decryptor<Aes256>;
 /// perspective and prevents timing-based distinction between wrong password
 /// and invalid padding.
 #[derive(Default)]
-pub struct CipherEngine;
+pub(crate) struct CipherEngine;
 
 impl CipherEngine {
     /// Stateless; instantiate once per pipeline and reuse.
@@ -27,7 +26,8 @@ impl CipherEngine {
         Self
     }
 
-    /// Decrypts `ciphertext` with AES-256-CBC + PKCS7 padding.
+    /// Decrypts `ciphertext` with AES-256-CBC + PKCS7 padding, in place, and returns the length
+    /// of the plaintext, which starts at `ciphertext[0]`.
     ///
     /// # Errors
     ///
@@ -37,22 +37,17 @@ impl CipherEngine {
     /// caller's perspective (and timing-indistinguishable on native
     /// targets thanks to the 100 µs constant-time delay) to avoid
     /// leaking which failure mode tripped on a wrong-password
-    /// attempt.
-    pub fn decrypt(
+    /// attempt. On failure `ciphertext` holds partly decrypted bytes.
+    pub(crate) fn decrypt_in_place(
         &self,
-        ciphertext: CipherText<'_>,
+        ciphertext: &mut [u8],
         key: &DerivedKey,
         iv: InitializationVector<'_>,
-    ) -> SpassResult<DecryptedData> {
-        // Decryption happens in place, so this holds plaintext on both paths.
-        let mut buffer = Zeroizing::new(ciphertext.as_bytes().to_vec());
-
+    ) -> SpassResult<usize> {
         let decryptor = Aes256CbcDec::new(key.as_bytes().into(), iv.as_bytes().into());
 
-        let result = decryptor.decrypt_padded::<Pkcs7>(&mut buffer);
-
-        if let Ok(plaintext) = result {
-            Ok(DecryptedData::new(plaintext.to_vec()))
+        if let Ok(plaintext) = decryptor.decrypt_padded::<Pkcs7>(ciphertext) {
+            Ok(plaintext.len())
         } else {
             // Constant-time delay on native targets to prevent timing-based
             // distinction between wrong password and invalid padding.
@@ -69,13 +64,30 @@ mod tests {
     use super::*;
     use crate::crypto::KeyDerivation;
     use crate::domain::EntryPassword;
-    use crate::format::DecodedFile;
+    use crate::format::{DecodedFile, SpassDecoder};
     use cbc::Encryptor;
     use cbc::cipher::BlockModeEncrypt;
     use std::num::NonZeroU32;
     use std::time::Instant;
 
     const FAST_ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
+    const FIXTURE_PASSWORD: &str = "TestPassword123";
+
+    /// Decrypts a committed fixture with the production key derivation.
+    fn decrypt_fixture(file: &[u8]) -> Vec<u8> {
+        let decoded = SpassDecoder::new()
+            .decode_from_bytes(file)
+            .expect("fixture decodes");
+        let key = KeyDerivation::default()
+            .derive_key(&EntryPassword::new(FIXTURE_PASSWORD.into()), decoded.salt())
+            .expect("key derivation");
+        let mut buffer = decoded.ciphertext().as_bytes().to_vec();
+        let len = CipherEngine::new()
+            .decrypt_in_place(&mut buffer, &key, decoded.iv())
+            .expect("fixture decrypts");
+        buffer.truncate(len);
+        buffer
+    }
 
     #[test]
     fn test_decrypt_with_wrong_key() {
@@ -83,12 +95,12 @@ mod tests {
         let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("wrong_password".into());
-        let ciphertext_bytes = [0u8; 32];
+        let mut ciphertext_bytes = [0u8; 32];
 
         let decoded = DecodedFile::builder().ciphertext(&ciphertext_bytes).build();
 
         let key = kd.derive_key(&password, decoded.salt()).unwrap();
-        let result = cipher.decrypt(decoded.ciphertext(), &key, decoded.iv());
+        let result = cipher.decrypt_in_place(&mut ciphertext_bytes, &key, decoded.iv());
         assert!(result.is_err());
     }
 
@@ -115,16 +127,13 @@ mod tests {
 
         buffer.truncate(ciphertext_len);
 
-        let decoded = DecodedFile::builder()
-            .iv(&iv_bytes)
-            .ciphertext(&buffer)
-            .build();
+        let decoded = DecodedFile::builder().iv(&iv_bytes).build();
 
-        let result = cipher.decrypt(decoded.ciphertext(), &key, decoded.iv());
+        let len = cipher
+            .decrypt_in_place(&mut buffer, &key, decoded.iv())
+            .unwrap();
 
-        assert!(result.is_ok());
-        let decrypted = result.unwrap();
-        assert_eq!(decrypted.as_bytes(), plaintext);
+        assert_eq!(&buffer[..len], plaintext);
     }
 
     #[test]
@@ -133,16 +142,51 @@ mod tests {
         let kd = KeyDerivation::new(FAST_ITERATIONS);
 
         let password = EntryPassword::new("test_password".into());
-        let ciphertext_bytes = [0u8; 32];
+        let mut ciphertext_bytes = [0u8; 32];
 
         let decoded = DecodedFile::builder().ciphertext(&ciphertext_bytes).build();
 
         let key = kd.derive_key(&password, decoded.salt()).unwrap();
 
         let start = Instant::now();
-        let _ = cipher.decrypt(decoded.ciphertext(), &key, decoded.iv());
+        let _ = cipher.decrypt_in_place(&mut ciphertext_bytes, &key, decoded.iv());
         let elapsed = start.elapsed();
 
         assert!(elapsed.as_micros() >= 100);
+    }
+
+    /// `tests/kat/*.plain` is `openssl enc -d -aes-256-cbc` output for the committed fixture it is
+    /// named after, keyed by Python's `hashlib.pbkdf2_hmac`.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn v30_fixture_decrypts_to_openssl_plaintext() {
+        assert_eq!(
+            decrypt_fixture(include_bytes!(
+                "../../../../gen-test/v30/test01-minimal.spass"
+            )),
+            include_bytes!("../../tests/kat/v30-test01-minimal.plain")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn v31_fixture_decrypts_to_openssl_plaintext() {
+        assert_eq!(
+            decrypt_fixture(include_bytes!(
+                "../../../../gen-test/v31/test01-minimal.spass"
+            )),
+            include_bytes!("../../tests/kat/v31-test01-minimal.plain")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn unknown_version_fixture_decrypts_to_openssl_plaintext() {
+        assert_eq!(
+            decrypt_fixture(include_bytes!(
+                "../../../../gen-test/besteffort/synthetic-v33.spass"
+            )),
+            include_bytes!("../../tests/kat/besteffort-synthetic-v33.plain")
+        );
     }
 }

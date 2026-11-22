@@ -21,20 +21,22 @@ zeroize.workspace = true
 
 base64.workspace = true
 hex.workspace = true
+csv-core.workspace = true
+memchr.workspace = true
 
 csv = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [features]
-default = ["parser-spass", "export-csv"]
+default = ["export-csv"]
 
-parser-spass = ["csv"]
-export-csv = ["csv"]
+export-csv = []
 export-json = ["serde", "serde_json"]
-generate-fixtures = []
+generate-fixtures = ["dep:csv"]
 
 [dev-dependencies]
+csv.workspace = true
 criterion = { version = "0.8.2", features = ["html_reports"] }
 # Self-dep enables `generate-fixtures` for integration tests in `tests/`
 # without forcing every dev invocation to pass `--all-features`. ci-check.sh

@@ -1,15 +1,18 @@
-//! Export formats for password entries.
+//! Export formats for decrypted entries.
 //!
-//! Exporters serialise a [`PasswordEntryCollection`] to a byte stream.
-//! Each exporter is gated behind a feature flag so binary size is only paid
-//! for the formats actually used.
+//! Exporters serialise an [`EntryBuffer`] to a byte stream. Each exporter is gated behind a
+//! feature flag so binary size is only paid for the formats actually used. Each buffers its
+//! output in a zeroizing chunk of its own and writes it to the caller's writer as it fills.
 //!
 //! | Feature        | Type              |
 //! |----------------|-------------------|
 //! | `export-csv`   | [`CsvExporter`]   |
 //! | `export-json`  | [`JsonExporter`]  |
 //!
-//! [`PasswordEntryCollection`]: crate::domain::PasswordEntryCollection
+//! [`EntryBuffer`]: crate::EntryBuffer
+
+#[cfg(any(feature = "export-csv", feature = "export-json"))]
+mod chunk;
 
 #[cfg(feature = "export-csv")]
 mod csv;

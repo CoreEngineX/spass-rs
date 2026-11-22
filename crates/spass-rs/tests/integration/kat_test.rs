@@ -1,7 +1,7 @@
 //! Properties of the crypto dependencies that this crate's own round trips cannot see.
 //!
-//! The `tests/kat/*.plain` files are `openssl enc -d -aes-256-cbc` output for the committed
-//! fixtures they are named after, keyed by Python's `hashlib.pbkdf2_hmac`.
+//! The committed-fixture checks against `openssl enc -d -aes-256-cbc` output live beside the
+//! decryption code, in `crypto::cipher`.
 
 use aes::Aes256;
 use cbc::Decryptor;
@@ -11,56 +11,7 @@ use hex::FromHex;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
-use spass::crypto::{CipherEngine, KeyDerivation};
-use spass::domain::EntryPassword;
-use spass::format::SpassDecoder;
 use zeroize::ZeroizeOnDrop;
-
-const FIXTURE_PASSWORD: &str = "TestPassword123";
-
-fn decrypt_raw(file: &[u8]) -> Vec<u8> {
-    let decoded = SpassDecoder::new()
-        .decode_from_bytes(file)
-        .expect("fixture decodes");
-    let key = KeyDerivation::default()
-        .derive_key(&EntryPassword::new(FIXTURE_PASSWORD.into()), decoded.salt())
-        .expect("key derivation");
-    CipherEngine::new()
-        .decrypt(decoded.ciphertext(), &key, decoded.iv())
-        .expect("fixture decrypts")
-        .as_bytes()
-        .to_vec()
-}
-
-#[test]
-fn v30_fixture_decrypts_to_openssl_plaintext() {
-    assert_eq!(
-        decrypt_raw(include_bytes!(
-            "../../../../gen-test/v30/test01-minimal.spass"
-        )),
-        include_bytes!("../kat/v30-test01-minimal.plain")
-    );
-}
-
-#[test]
-fn v31_fixture_decrypts_to_openssl_plaintext() {
-    assert_eq!(
-        decrypt_raw(include_bytes!(
-            "../../../../gen-test/v31/test01-minimal.spass"
-        )),
-        include_bytes!("../kat/v31-test01-minimal.plain")
-    );
-}
-
-#[test]
-fn unknown_version_fixture_decrypts_to_openssl_plaintext() {
-    assert_eq!(
-        decrypt_raw(include_bytes!(
-            "../../../../gen-test/besteffort/synthetic-v33.spass"
-        )),
-        include_bytes!("../kat/besteffort-synthetic-v33.plain")
-    );
-}
 
 /// RFC 7914 section 11.
 #[test]

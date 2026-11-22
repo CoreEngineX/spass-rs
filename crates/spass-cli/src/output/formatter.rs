@@ -1,7 +1,7 @@
 //! Output formatting for password entries.
 
 use colored::Colorize;
-use spass::domain::PasswordEntryCollection;
+use spass::EntryBuffer;
 use spass::export::{CsvExporter, JsonExporter};
 use std::io::Write;
 
@@ -12,27 +12,27 @@ use crate::error::{CliError, CliResult};
 pub struct OutputFormatter;
 
 impl OutputFormatter {
-    /// Writes the password collection to the given writer in the specified format.
+    /// Writes the entries to the given writer in the specified format, then flushes it.
     pub fn write<W: Write>(
         writer: &mut W,
-        collection: &PasswordEntryCollection,
+        entries: &EntryBuffer,
         format: OutputFormat,
     ) -> CliResult<()> {
-        match format {
-            OutputFormat::Csv => CsvExporter::write(writer, collection)
-                .map_err(|e| CliError::OutputWrite(e.to_string())),
-            OutputFormat::Json => JsonExporter::write(writer, collection)
-                .map_err(|e| CliError::OutputWrite(e.to_string())),
-        }
+        let written = match format {
+            OutputFormat::Csv => CsvExporter::write(&mut *writer, entries),
+            OutputFormat::Json => JsonExporter::write(writer, entries),
+        };
+        written.map_err(|e| CliError::OutputWrite(e.to_string()))?;
+
+        writer
+            .flush()
+            .map_err(|e| CliError::OutputWrite(e.to_string()))
     }
 
     /// Displays a summary of decrypted entries to stdout.
-    pub fn display_summary(collection: &PasswordEntryCollection) {
-        let count = collection.len();
-        let with_url = collection
-            .iter()
-            .filter(|e| !e.url.as_str().is_empty())
-            .count();
+    pub fn display_summary(entries: &EntryBuffer) {
+        let count = entries.len();
+        let with_url = entries.iter().filter(|e| !e.url.is_empty()).count();
 
         println!();
         println!(

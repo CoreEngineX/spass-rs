@@ -1,57 +1,93 @@
-//! CSV exporter for password entries.
+//! CSV exporter for decrypted entries.
 
-use std::io::Write;
+use std::io::{self, Write};
 
-use crate::domain::{PasswordEntryCollection, SpassError, SpassResult};
+use csv_core::{WriteResult, Writer};
 
-/// Writes a [`PasswordEntryCollection`] as RFC 4180-compliant CSV.
+use super::chunk::Chunked;
+use crate::domain::SpassResult;
+use crate::entries::EntryBuffer;
+
+const HEADER: [&str; 5] = ["name", "url", "username", "password", "note"];
+
+/// Writes an [`EntryBuffer`] as CSV.
 ///
-/// The output uses the header `name,url,username,password,note`.
-/// All field quoting and escaping is handled by the `csv` crate.
+/// The header is `name,url,username,password,note`. A field is quoted only where it holds a
+/// comma, a quote or a line break; records end in `\n`. The output is byte for byte what the `csv`
+/// crate's default writer produced.
 pub struct CsvExporter;
 
 impl CsvExporter {
-    /// Write `collection` as CSV into `writer`.
+    /// Write `entries` as CSV into `writer`, then flush it.
     ///
     /// # Errors
     ///
-    /// - [`SpassError::Csv`] on serialisation failure (a row contains
-    ///   bytes the `csv` crate refuses to encode).
-    /// - [`SpassError::Io`] if flushing the writer fails.
+    /// [`SpassError::Io`](crate::SpassError::Io) if `writer` fails.
     ///
     /// # Examples
     ///
-    /// Write to an in-memory buffer:
-    ///
-    /// ```
-    /// use spass::domain::PasswordEntryCollection;
+    /// ```no_run
+    /// use spass::domain::EntryPassword;
     /// use spass::export::CsvExporter;
+    /// use spass::pipeline::DecryptionPipeline;
     ///
-    /// let collection = PasswordEntryCollection::new();
-    /// let mut buf = Vec::new();
-    /// CsvExporter::write(&mut buf, &collection).unwrap();
-    ///
-    /// let csv = String::from_utf8(buf).unwrap();
-    /// assert!(csv.starts_with("name,url,username,password,note"));
+    /// let password = EntryPassword::new("secret".to_string());
+    /// let outcome = DecryptionPipeline::default().decrypt_file("passwords.spass", &password)?;
+    /// CsvExporter::write(std::fs::File::create("passwords.csv")?, &outcome.entries)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn write<W: Write>(writer: W, collection: &PasswordEntryCollection) -> SpassResult<()> {
-        let mut wtr = ::csv::Writer::from_writer(writer);
+    pub fn write<W: Write>(writer: W, entries: &EntryBuffer) -> SpassResult<()> {
+        let mut out = Chunked::new(writer);
+        let mut csv = Writer::new();
 
-        wtr.write_record(["name", "url", "username", "password", "note"])
-            .map_err(SpassError::Csv)?;
-
-        for entry in collection {
-            wtr.write_record([
-                entry.name.as_str(),
-                entry.url.as_str(),
-                entry.username.as_str(),
-                entry.password.as_str(),
-                entry.note.as_str(),
-            ])
-            .map_err(SpassError::Csv)?;
+        write_record(&mut csv, &mut out, HEADER)?;
+        for entry in entries {
+            let record = [
+                entry.name,
+                entry.url,
+                entry.username,
+                entry.password,
+                entry.note,
+            ];
+            write_record(&mut csv, &mut out, record)?;
         }
+        Ok(out.finish()?)
+    }
+}
 
-        wtr.flush().map_err(SpassError::Io)?;
-        Ok(())
+fn write_record<W: Write>(
+    csv: &mut Writer,
+    out: &mut Chunked<W>,
+    fields: [&str; 5],
+) -> io::Result<()> {
+    for (index, field) in fields.into_iter().enumerate() {
+        if index > 0 {
+            loop {
+                let (result, written) = csv.delimiter(out.spare());
+                out.advance(written);
+                match result {
+                    WriteResult::InputEmpty => break,
+                    WriteResult::OutputFull => out.drain()?,
+                }
+            }
+        }
+        let mut rest = field.as_bytes();
+        loop {
+            let (result, read, written) = csv.field(rest, out.spare());
+            rest = &rest[read..];
+            out.advance(written);
+            match result {
+                WriteResult::InputEmpty => break,
+                WriteResult::OutputFull => out.drain()?,
+            }
+        }
+    }
+    loop {
+        let (result, written) = csv.terminator(out.spare());
+        out.advance(written);
+        match result {
+            WriteResult::InputEmpty => return Ok(()),
+            WriteResult::OutputFull => out.drain()?,
+        }
     }
 }

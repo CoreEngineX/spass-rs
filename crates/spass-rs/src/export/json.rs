@@ -1,17 +1,21 @@
-//! JSON exporter for password entries.
+//! JSON exporter for decrypted entries.
 
 use std::io::Write;
 
-use crate::domain::{PasswordEntryCollection, SpassError, SpassResult};
+use serde::{Serialize, Serializer};
 
-/// Writes a [`PasswordEntryCollection`] as a pretty-printed JSON array.
+use super::chunk::Chunked;
+use crate::domain::{SpassError, SpassResult};
+use crate::entries::{EntryBuffer, EntryRef};
+
+/// Writes an [`EntryBuffer`] as a pretty-printed JSON array.
 ///
 /// Each object in the array has the keys `name`, `url`, `username`,
 /// `password`, and `note`.
 pub struct JsonExporter;
 
-/// View type used only for serialisation — keeps serde out of the domain.
-#[derive(serde::Serialize)]
+/// View type used only for serialisation -- keeps serde out of the domain.
+#[derive(Serialize)]
 struct EntryRecord<'a> {
     name: &'a str,
     url: &'a str,
@@ -20,49 +24,58 @@ struct EntryRecord<'a> {
     note: &'a str,
 }
 
+impl<'a> From<EntryRef<'a>> for EntryRecord<'a> {
+    fn from(entry: EntryRef<'a>) -> Self {
+        Self {
+            name: entry.name,
+            url: entry.url,
+            username: entry.username,
+            password: entry.password,
+            note: entry.note,
+        }
+    }
+}
+
+/// Serialises the entries one at a time, so no second copy of them is built.
+struct Records<'a>(&'a EntryBuffer);
+
+impl Serialize for Records<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().map(EntryRecord::from))
+    }
+}
+
 impl JsonExporter {
-    /// Write `collection` as a pretty-printed JSON array into
-    /// `writer`. The output is a top-level array of objects with
-    /// the keys `name`, `url`, `username`, `password`, `note` --
-    /// the same schema as [`CsvExporter`](super::CsvExporter), just
-    /// in JSON form.
+    /// Write `entries` as a pretty-printed JSON array into `writer`, then flush it. The output is
+    /// a top-level array of objects with the keys `name`, `url`, `username`, `password`, `note`
+    /// -- the same schema as [`CsvExporter`](super::CsvExporter), just in JSON form.
     ///
     /// # Errors
     ///
-    /// [`SpassError::Parsing`] if `serde_json` fails to serialise
-    /// (e.g. the writer rejects bytes mid-stream).
+    /// - [`SpassError::Io`] if `writer` fails.
+    /// - [`SpassError::Parsing`] if `serde_json` fails to serialise.
     ///
     /// # Examples
     ///
-    /// Write to an in-memory buffer:
-    ///
-    /// ```
-    /// use spass::domain::PasswordEntryCollection;
+    /// ```no_run
+    /// use spass::domain::EntryPassword;
     /// use spass::export::JsonExporter;
+    /// use spass::pipeline::DecryptionPipeline;
     ///
-    /// let collection = PasswordEntryCollection::new();
-    /// let mut buf = Vec::new();
-    /// JsonExporter::write(&mut buf, &collection).unwrap();
-    ///
-    /// let json = String::from_utf8(buf).unwrap();
-    /// assert_eq!(json, "[]");
+    /// let password = EntryPassword::new("secret".to_string());
+    /// let outcome = DecryptionPipeline::default().decrypt_file("passwords.spass", &password)?;
+    /// JsonExporter::write(&mut std::fs::File::create("passwords.json")?, &outcome.entries)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn write<W: Write>(
-        writer: &mut W,
-        collection: &PasswordEntryCollection,
-    ) -> SpassResult<()> {
-        let records: Vec<EntryRecord<'_>> = collection
-            .iter()
-            .map(|e| EntryRecord {
-                name: e.name.as_str(),
-                url: e.url.as_str(),
-                username: e.username.as_str(),
-                password: e.password.as_str(),
-                note: e.note.as_str(),
-            })
-            .collect();
-
-        serde_json::to_writer_pretty(writer, &records)
-            .map_err(|e| SpassError::Parsing(e.to_string()))
+    pub fn write<W: Write>(writer: &mut W, entries: &EntryBuffer) -> SpassResult<()> {
+        let mut out = Chunked::new(writer);
+        serde_json::to_writer_pretty(&mut out, &Records(entries)).map_err(|error| {
+            if error.is_io() {
+                SpassError::Io(error.into())
+            } else {
+                SpassError::Parsing(error.to_string())
+            }
+        })?;
+        Ok(out.finish()?)
     }
 }

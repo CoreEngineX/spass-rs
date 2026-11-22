@@ -96,7 +96,7 @@ jobs:
         run: cargo build --target aarch64-apple-ios-sim -p spass-uniffi
       - name: Generate Swift bindings (smoke test)
         run: |
-          cargo run --bin uniffi-bindgen -- \
+          cargo run -p spass-uniffi-bindgen --bin uniffi-bindgen -- \
             generate \
             --library target/aarch64-apple-ios/debug/libspass_uniffi.a \
             --language swift \

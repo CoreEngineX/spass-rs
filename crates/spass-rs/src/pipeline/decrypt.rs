@@ -6,27 +6,30 @@ use std::path::Path;
 
 use crate::crypto::{CipherEngine, CryptoValidator, KeyDerivation, PBKDF2_ITERATIONS};
 use crate::domain::{DecryptOutcome, EntryPassword, SpassResult, VersionStatus};
+use crate::entries::{Plaintext, decode_schema, decode_v30};
 use crate::format::{
-    CipherText, DetectedVersion, FormatValidator, InitializationVector, Salt, SpassDecoder,
-    SpassFormatVersion, WireFamily,
+    DecodedBuffer, DetectedVersion, FormatValidator, SpassDecoder, SpassFormatVersion, WireFamily,
 };
-use crate::parser::{FormatId, ParserRegistry, SchemaParser};
+
+const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 /// Full decryption pipeline for `.spass` files.
 ///
 /// Steps:
-/// 1. Base64-decode the file
-/// 2. Validate ciphertext (salt and IV are validated by their types)
-/// 3. Derive AES-256 key via PBKDF2-HMAC-SHA256
-/// 4. Decrypt with AES-256-CBC
-/// 5. Validate the decrypted size, then detect the version sentinel
-/// 6. Dispatch by wire family: v30 to its dedicated parser (after the
+/// 1. Skip a leading byte order mark and surrounding whitespace, and refuse a file too long to
+///    decode to a payload within the 100 MiB ceiling
+/// 2. Base64-decode the file into one zeroizing buffer
+/// 3. Validate ciphertext (salt and IV are validated by their types)
+/// 4. Derive AES-256 key via PBKDF2-HMAC-SHA256
+/// 5. Decrypt with AES-256-CBC, in place
+/// 6. Validate the decrypted size, then detect the version sentinel
+/// 7. Dispatch by wire family: v30 to its dedicated decoder (after the
 ///    pinned marker check), everything else -- v31, v32, and unknown
-///    sentinels -- to the default schema parser
+///    sentinels -- to the default schema decoder
 ///
-/// The pipeline returns a [`DecryptOutcome`] carrying the extracted entries
-/// plus a [`VersionStatus`]. Consumers inspect the status to render a
-/// "best-effort" banner when the file's version sentinel wasn't recognised.
+/// The pipeline returns a [`DecryptOutcome`] carrying every kept field in one
+/// [`EntryBuffer`](crate::EntryBuffer) plus a [`VersionStatus`]. Consumers inspect the status to
+/// render a "best-effort" banner when the file's version sentinel wasn't recognised.
 ///
 /// # Examples
 ///
@@ -56,8 +59,6 @@ pub struct DecryptionPipeline {
     crypto_validator: CryptoValidator,
     format_validator: FormatValidator,
     decoder: SpassDecoder,
-    parser_registry: ParserRegistry,
-    schema_parser: SchemaParser,
 }
 
 impl DecryptionPipeline {
@@ -77,22 +78,15 @@ impl DecryptionPipeline {
             crypto_validator: CryptoValidator::new(),
             format_validator: FormatValidator::new(),
             decoder: SpassDecoder::new(),
-            parser_registry: ParserRegistry::new(),
-            schema_parser: SchemaParser::new(),
         }
     }
 
-    /// Decrypts a `.spass` file at `path`.
+    /// Decrypts the `.spass` file at `path`; its extension must be `.spass`. Not on wasm32.
     ///
     /// # Errors
     ///
     /// - `SpassError::Config` — wrong extension or unreadable file
-    /// - `SpassError::Parsing` — invalid Base64 or file structure
-    /// - `SpassError::Validation` — bad crypto parameters or format marker missing
-    /// - `SpassError::Decryption` — wrong password or corrupted data
-    /// - `SpassError::UnknownVersionUnparseable` — line-1 sentinel was
-    ///   unrecognised AND the schema parser couldn't resolve all 5
-    ///   required columns; the contained report carries the diagnostic
+    /// - Everything [`Self::decrypt_to_buffer`] returns
     ///
     /// # Examples
     ///
@@ -111,72 +105,57 @@ impl DecryptionPipeline {
         path: P,
         password: &EntryPassword,
     ) -> SpassResult<DecryptOutcome> {
-        let decoded = self.decoder.decode_from_file(path)?;
-        self.decrypt_data(decoded.ciphertext(), password, decoded.salt(), decoded.iv())
+        let file = self.decoder.read_file(path)?;
+        self.decrypt_to_buffer(&file, password)
     }
 
-    /// Decrypts a `.spass` payload from a Base64 string. Use this
-    /// when the bytes are already in memory (browser upload, network
-    /// fetch, embedded fixture) instead of round-tripping through
-    /// the filesystem.
+    /// Decrypts a `.spass` file's bytes, its Base64 text exactly as Samsung writes it, into one
+    /// [`EntryBuffer`](crate::EntryBuffer). Use this when the bytes are already in memory
+    /// (browser upload, network fetch, embedded fixture). One leading UTF-8 byte order mark and
+    /// surrounding ASCII whitespace are skipped.
     ///
     /// # Errors
     ///
-    /// Same surface as [`Self::decrypt_file`] minus the filesystem
-    /// errors:
-    ///
-    /// - `SpassError::Parsing` -- invalid Base64 or the decoded
-    ///   payload is too short to carry the salt + IV header.
-    /// - `SpassError::Validation` -- ciphertext is empty / not a
-    ///   block multiple, or the decrypted bytes are missing the
-    ///   `next_table` marker (typically a wrong-password failure
-    ///   that bypassed PKCS7).
-    /// - `SpassError::Decryption` -- wrong password (AES + PKCS7
-    ///   rejected the padding).
-    /// - `SpassError::UnknownVersionUnparseable` -- see [`Self::decrypt_file`].
-    pub fn decrypt_string(
+    /// - `SpassError::Validation` -- the file is longer than any export within the 100 MiB
+    ///   plaintext ceiling (refused before Base64 and PBKDF2), the ciphertext is empty or not a
+    ///   block multiple, the decrypted data is empty or over the ceiling, line 1 is empty or not
+    ///   UTF-8, or a v30 file has no `next_table` on line 3.
+    /// - `SpassError::Parsing` -- invalid Base64, a payload too short for the salt + IV header,
+    ///   or malformed rows, quoting, headers or kept fields.
+    /// - `SpassError::Decryption` -- wrong password (AES + PKCS7 rejected the padding).
+    /// - `SpassError::UnknownVersionUnparseable` -- the line-1 sentinel is unrecognised or a
+    ///   v31-family header lacks a required column; the contained report carries the diagnostic.
+    pub fn decrypt_to_buffer(
         &self,
-        content: &str,
+        file: &[u8],
         password: &EntryPassword,
     ) -> SpassResult<DecryptOutcome> {
-        let decoded = self.decoder.decode_from_bytes(content.as_bytes())?;
-        self.decrypt_data(decoded.ciphertext(), password, decoded.salt(), decoded.iv())
-    }
+        let text = file.strip_prefix(&UTF8_BOM).unwrap_or(file).trim_ascii();
+        self.format_validator.validate_file_len(text.len())?;
 
-    fn decrypt_data(
-        &self,
-        ciphertext: CipherText<'_>,
-        password: &EntryPassword,
-        salt: Salt<'_>,
-        iv: InitializationVector<'_>,
-    ) -> SpassResult<DecryptOutcome> {
-        self.crypto_validator.validate_ciphertext(ciphertext)?;
+        let mut decoded = self.decoder.decode_into_buffer(text)?;
+        self.crypto_validator
+            .validate_ciphertext(decoded.ciphertext())?;
+        let key = self.key_derivation.derive_key(password, decoded.salt())?;
+        let (iv, ciphertext) = decoded.iv_and_ciphertext_mut();
+        let plaintext_len = self.cipher.decrypt_in_place(ciphertext, &key, iv)?;
 
-        let key = self.key_derivation.derive_key(password, salt)?;
-        let decrypted = self.cipher.decrypt(ciphertext, &key, iv)?;
+        let plain = Plaintext::new(
+            decoded.into_bytes(),
+            DecodedBuffer::CIPHERTEXT_START,
+            plaintext_len,
+        );
+        self.format_validator.validate_data_size(plain.as_slice())?;
 
-        self.format_validator.validate_data_size(&decrypted)?;
-        let detected = SpassFormatVersion::detect(&decrypted)?;
-
-        match detected {
+        match SpassFormatVersion::detect(plain.as_slice())? {
             DetectedVersion::Known(version) => {
                 let entries = match version.wire_family() {
                     WireFamily::V30Csv => {
-                        self.format_validator.validate_v30_marker(&decrypted)?;
-                        self.parser_registry
-                            .parse(FormatId::SpassCsvV30, decrypted.as_bytes())?
+                        self.format_validator
+                            .validate_v30_marker(plain.as_slice())?;
+                        decode_v30(plain)?
                     }
-                    WireFamily::Schema35 => {
-                        // The report only matters when the sentinel is
-                        // unknown; on the known path the parse either
-                        // succeeds quietly or errors (a missing required
-                        // column still carries the report via
-                        // `UnknownVersionUnparseable`).
-                        let (entries, _report) = self
-                            .schema_parser
-                            .parse_with_report(version.sentinel_str(), decrypted.as_bytes())?;
-                        entries
-                    }
+                    WireFamily::Schema35 => decode_schema(plain, version.sentinel_str())?.0,
                 };
                 Ok(DecryptOutcome {
                     entries,
@@ -184,9 +163,7 @@ impl DecryptionPipeline {
                 })
             }
             DetectedVersion::Unknown(sentinel) => {
-                let (entries, report) = self
-                    .schema_parser
-                    .parse_with_report(&sentinel, decrypted.as_bytes())?;
+                let (entries, report) = decode_schema(plain, &sentinel)?;
                 Ok(DecryptOutcome {
                     entries,
                     version_status: VersionStatus::BestEffort { report },
@@ -208,9 +185,29 @@ impl Default for DecryptionPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::DecodedFile;
+    use crate::domain::SpassError;
+    use crate::testkit::{SpassGenerator, TestEntry};
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use std::assert_matches;
 
     const FAST_ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
+    const PASSWORD: &str = "pipeline-test";
+
+    fn pipeline() -> DecryptionPipeline {
+        DecryptionPipeline::new(FAST_ITERATIONS)
+    }
+
+    fn password() -> EntryPassword {
+        EntryPassword::new(PASSWORD.to_string())
+    }
+
+    fn fixture() -> Vec<u8> {
+        SpassGenerator::new(PASSWORD)
+            .entry(TestEntry::new("https://a.example", "ann", "pw", "A", "n"))
+            .generate_with_iterations(FAST_ITERATIONS)
+            .into_bytes()
+    }
 
     #[test]
     fn test_new_pipeline() {
@@ -223,36 +220,67 @@ mod tests {
     }
 
     #[test]
-    fn test_decrypt_data_with_invalid_salt() {
-        let pipeline = DecryptionPipeline::new(FAST_ITERATIONS);
-        let ciphertext_bytes = b"ciphertext123456";
+    #[cfg_attr(miri, ignore)]
+    fn test_decrypt_with_invalid_salt() {
+        let mut raw = vec![0u8; 36];
+        raw.extend_from_slice(b"ciphertext123456");
+        let file = STANDARD.encode(raw);
 
-        let decoded = DecodedFile::builder().ciphertext(ciphertext_bytes).build();
-
-        let result = pipeline.decrypt_data(
-            decoded.ciphertext(),
-            &EntryPassword::new("password".into()),
-            decoded.salt(),
-            decoded.iv(),
-        );
+        let result = pipeline().decrypt_to_buffer(file.as_bytes(), &password());
 
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_decrypt_data_with_empty_ciphertext() {
-        let pipeline = DecryptionPipeline::new(FAST_ITERATIONS);
-        let decoded = DecodedFile::builder().build();
+    #[cfg_attr(miri, ignore)]
+    fn test_decrypt_with_empty_ciphertext() {
+        let file = STANDARD.encode([0u8; 36]);
 
-        let result = pipeline.decrypt_data(
-            decoded.ciphertext(),
-            &EntryPassword::new("password".into()),
-            decoded.salt(),
-            decoded.iv(),
-        );
+        let result = pipeline().decrypt_to_buffer(file.as_bytes(), &password());
 
-        assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string().to_lowercase();
         assert!(err_msg.contains("encrypted") || err_msg.contains("validation"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_file_shorter_than_its_header_is_a_parsing_error() {
+        let file = STANDARD.encode([0u8; 10]);
+
+        let result = pipeline().decrypt_to_buffer(file.as_bytes(), &password());
+
+        assert_matches!(result, Err(SpassError::Parsing(_)));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_leading_byte_order_mark_and_whitespace_are_skipped() {
+        let plain = fixture();
+        let mut file = UTF8_BOM.to_vec();
+        file.extend_from_slice(&plain);
+        file.extend_from_slice(b"\r\n");
+
+        let outcome = pipeline().decrypt_to_buffer(&file, &password()).unwrap();
+
+        assert_eq!(outcome.entries.len(), 1);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_file_over_the_length_bound_is_refused_without_decoding() {
+        let file = vec![b'A'; crate::format::MAX_FILE_LEN + 1];
+
+        let result = pipeline().decrypt_to_buffer(&file, &password());
+
+        assert_matches!(result, Err(SpassError::Validation(_)));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_wrong_password_is_a_decryption_error() {
+        let result =
+            pipeline().decrypt_to_buffer(&fixture(), &EntryPassword::new("wrong".to_string()));
+
+        assert_matches!(result, Err(SpassError::Decryption(_)));
     }
 }

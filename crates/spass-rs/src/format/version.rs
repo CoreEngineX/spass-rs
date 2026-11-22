@@ -3,12 +3,12 @@
 //! Samsung Pass writes a small token on line 1 of decrypted plaintext that
 //! identifies the layout used by the rest of the file. Reading this token
 //! before any further parsing is what lets the pipeline dispatch to the right
-//! parser without heuristics.
+//! decoder without heuristics.
 //!
-//! Versions map to a [`WireFamily`], and the family picks the parser:
+//! Versions map to a [`WireFamily`], and the family picks the decoder:
 //!
-//! - `WireFamily::V30Csv` -> the dedicated v30 parser
-//! - `WireFamily::Schema35` -> the default schema parser, which also serves
+//! - `WireFamily::V30Csv` -> the dedicated v30 decoder
+//! - `WireFamily::Schema35` -> the default schema decoder, which also serves
 //!   every *unknown* sentinel (`DetectedVersion::Unknown`)
 //!
 //! `DetectedVersion` is `pub(crate)` -- callers outside this crate get the
@@ -18,7 +18,7 @@
 //! downstream `match`es don't need a wildcard arm just for an internal
 //! dispatch primitive.
 
-use crate::domain::{DecryptedData, SpassError, SpassResult};
+use crate::domain::{SpassError, SpassResult};
 
 /// Samsung Pass plaintext layout this crate recognises on line 1.
 ///
@@ -40,16 +40,16 @@ pub enum SpassFormatVersion {
     V32,
 }
 
-/// Which parser a version routes to. A future same-layout version extends
+/// Which decoder a version routes to. A future same-layout version extends
 /// the sentinel match in [`SpassFormatVersion::detect`] and the arm in
-/// [`SpassFormatVersion::wire_family`] -- no parser code.
+/// [`SpassFormatVersion::wire_family`] -- no decoder code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WireFamily {
     /// Comma-delimited plaintext CSV with the `next_table` marker pinned to
     /// line 3. v30 only.
     V30Csv,
     /// 35-column semicolon + Base64 family served by the default schema
-    /// parser: v31, v32, and every unknown sentinel.
+    /// decoder: v31, v32, and every unknown sentinel.
     Schema35,
 }
 
@@ -72,13 +72,12 @@ impl SpassFormatVersion {
     /// Hard-errors only when line 1 is empty or not valid UTF-8 (a missing
     /// sentinel is a malformed file, not a new format version). Any other
     /// string -- including future Samsung sentinels like `"33"` -- returns
-    /// `DetectedVersion::Unknown(s)` so the schema parser can have a go.
+    /// `DetectedVersion::Unknown(s)` so the schema decoder can have a go.
     ///
     /// # Errors
     ///
     /// `SpassError::Validation` if line 1 is empty or non-UTF-8.
-    pub(crate) fn detect(plaintext: &DecryptedData) -> SpassResult<DetectedVersion> {
-        let bytes = plaintext.as_bytes();
+    pub(crate) fn detect(bytes: &[u8]) -> SpassResult<DetectedVersion> {
         let first_line_end = bytes
             .iter()
             .position(|&b| b == b'\n')
@@ -100,7 +99,7 @@ impl SpassFormatVersion {
         }
     }
 
-    /// The parser family this version routes to.
+    /// The decoder family this version routes to.
     pub(crate) fn wire_family(self) -> WireFamily {
         match self {
             Self::V30 => WireFamily::V30Csv,
@@ -108,7 +107,7 @@ impl SpassFormatVersion {
         }
     }
 
-    /// Line-1 sentinel as Samsung writes it. Flows into the schema parser's
+    /// Line-1 sentinel as Samsung writes it. Flows into the schema decoder's
     /// report so error diagnostics name the real on-disk value even on the
     /// known-version path.
     pub(crate) fn sentinel_str(self) -> &'static str {
@@ -124,18 +123,18 @@ impl SpassFormatVersion {
 mod tests {
     use super::*;
 
-    fn data(s: &str) -> DecryptedData {
-        DecryptedData::new(s.as_bytes().to_vec())
+    fn data(s: &str) -> &[u8] {
+        s.as_bytes()
     }
 
-    fn expect_known(d: &DecryptedData) -> SpassFormatVersion {
+    fn expect_known(d: &[u8]) -> SpassFormatVersion {
         match SpassFormatVersion::detect(d).unwrap() {
             DetectedVersion::Known(v) => v,
             DetectedVersion::Unknown(s) => panic!("expected Known, got Unknown({s})"),
         }
     }
 
-    fn expect_unknown(d: &DecryptedData) -> String {
+    fn expect_unknown(d: &[u8]) -> String {
         match SpassFormatVersion::detect(d).unwrap() {
             DetectedVersion::Unknown(s) => s,
             DetectedVersion::Known(v) => panic!("expected Unknown, got Known({v:?})"),
@@ -145,58 +144,58 @@ mod tests {
     #[test]
     fn detect_v30() {
         let d = data("spass_export_v1\nheader\nnext_table\n");
-        assert_eq!(expect_known(&d), SpassFormatVersion::V30);
+        assert_eq!(expect_known(d), SpassFormatVersion::V30);
     }
 
     #[test]
     fn detect_v30_with_trailing_carriage_return() {
         let d = data("spass_export_v1\r\nheader\r\nnext_table\r\n");
-        assert_eq!(expect_known(&d), SpassFormatVersion::V30);
+        assert_eq!(expect_known(d), SpassFormatVersion::V30);
     }
 
     #[test]
     fn detect_v31() {
         let d = data("31\ntrue;false;false;false\nfalse\nnext_table\n");
-        assert_eq!(expect_known(&d), SpassFormatVersion::V31);
+        assert_eq!(expect_known(d), SpassFormatVersion::V31);
     }
 
     #[test]
     fn detect_v31_with_trailing_carriage_return() {
         let d = data("31\r\ntrue;false;false;false\r\n");
-        assert_eq!(expect_known(&d), SpassFormatVersion::V31);
+        assert_eq!(expect_known(d), SpassFormatVersion::V31);
     }
 
     #[test]
     fn detect_v32() {
         let d = data("32\ntrue;false;false;false\nfalse\nnext_table\n");
-        assert_eq!(expect_known(&d), SpassFormatVersion::V32);
+        assert_eq!(expect_known(d), SpassFormatVersion::V32);
     }
 
     #[test]
     fn detect_unknown_version_returns_unknown_variant() {
         let d = data("33\nfoo\n");
-        assert_eq!(expect_unknown(&d), "33");
+        assert_eq!(expect_unknown(d), "33");
     }
 
     #[test]
     fn detect_legacy_numeric_30_is_unknown_not_v30() {
         // Real v30 files write "spass_export_v1", not "30". A literal "30"
         // landing here means Samsung shipped a new format we haven't taught
-        // support for -- route through the schema parser as unknown.
+        // support for -- route through the schema decoder as unknown.
         let d = data("30\nheader\nnext_table\n");
-        assert_eq!(expect_unknown(&d), "30");
+        assert_eq!(expect_unknown(d), "30");
     }
 
     #[test]
     fn detect_garbage_is_unknown() {
         let d = data("not_a_number\n");
-        assert_eq!(expect_unknown(&d), "not_a_number");
+        assert_eq!(expect_unknown(d), "not_a_number");
     }
 
     #[test]
     fn detect_empty_first_line_errors() {
         let d = data("\nfoo\n");
-        let err = SpassFormatVersion::detect(&d).unwrap_err();
+        let err = SpassFormatVersion::detect(d).unwrap_err();
         assert!(err.to_string().contains("missing"));
     }
 
@@ -215,7 +214,7 @@ mod tests {
             SpassFormatVersion::V32,
         ] {
             let d = data(&format!("{}\nrest\n", v.sentinel_str()));
-            assert_eq!(expect_known(&d), v);
+            assert_eq!(expect_known(d), v);
         }
     }
 }

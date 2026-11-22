@@ -23,6 +23,7 @@ passwords.csv
 
 # But keep the 1M-entry stress fixtures ignored (~100-200 MB each).
 gen-test/*/test05-1m.spass
+gen-test/*/stress-*.spass
 
 # Backup / stale source trees (root-level only)
 /src/

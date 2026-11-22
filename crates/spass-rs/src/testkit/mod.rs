@@ -1,7 +1,8 @@
-//! Internal test fixture generator for `.spass` files.
+//! Internal test fixture generator for `.spass` files, and the collection decoder the buffer
+//! decoders are tested against ([`oracle`]).
 //!
-//! Only compiled under `#[cfg(test)]`. Not part of the public API and
-//! never included in release builds.
+//! Compiled under `#[cfg(test)]` and the `generate-fixtures` feature. Not part of the
+//! library's API and never included in release builds.
 //!
 //! # Usage
 //!
@@ -25,8 +26,11 @@ use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
+use std::num::NonZeroU32;
 
 use crate::crypto::PBKDF2_ITERATIONS;
+
+pub mod oracle;
 
 /// A single password entry used when generating a test fixture.
 #[derive(Debug, Clone)]
@@ -216,9 +220,16 @@ impl SpassGenerator {
     /// Generates the `.spass` file content as a Base64 string.
     ///
     /// The result can be written directly to a `.spass` file or passed to
-    /// `DecryptionPipeline::decrypt_string`.
+    /// `DecryptionPipeline::decrypt_to_buffer`.
     #[must_use]
     pub fn generate(&self) -> String {
+        self.generate_with_iterations(PBKDF2_ITERATIONS)
+    }
+
+    /// Like [`Self::generate`], with `iterations` PBKDF2 rounds in place of the production
+    /// count. Decrypt with a pipeline built for the same count.
+    #[must_use]
+    pub fn generate_with_iterations(&self, iterations: NonZeroU32) -> String {
         let salt = self.salt.unwrap_or([
             0x53, 0x61, 0x6d, 0x73, 0x75, 0x6e, 0x67, 0x54, 0x65, 0x73, 0x74, 0x53, 0x61, 0x6c,
             0x74, 0x56, 0x61, 0x6c, 0x75, 0x65,
@@ -229,7 +240,13 @@ impl SpassGenerator {
         ]);
 
         let plaintext = self.build_plaintext();
-        let ciphertext = Self::encrypt(plaintext.as_bytes(), &self.password, &salt, &iv);
+        let ciphertext = Self::encrypt_with_iterations(
+            plaintext.as_bytes(),
+            &self.password,
+            &salt,
+            &iv,
+            iterations.get(),
+        );
 
         let mut blob = Vec::with_capacity(20 + 16 + ciphertext.len());
         blob.extend_from_slice(&salt);
@@ -460,10 +477,6 @@ impl SpassGenerator {
         buffer.truncate(ciphertext_len);
         buffer
     }
-
-    fn encrypt(plaintext: &[u8], password: &str, salt: &[u8; 20], iv: &[u8; 16]) -> Vec<u8> {
-        Self::encrypt_with_iterations(plaintext, password, salt, iv, PBKDF2_ITERATIONS.get())
-    }
 }
 
 // ── convenience constructors ──────────────────────────────────────────────────
@@ -519,7 +532,8 @@ impl SpassGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{EntryPassword, SpassError, VersionStatus};
+    use crate::domain::{DecryptOutcome, EntryPassword, SpassError, SpassResult, VersionStatus};
+    use crate::entries::EntryRef;
     use crate::format::SpassFormatVersion;
     use crate::pipeline::DecryptionPipeline;
     use std::assert_matches;
@@ -1510,22 +1524,26 @@ mod tests {
         assert!(shifted.starts_with("32\n"));
     }
 
+    const LOW_ITERATIONS: std::num::NonZeroU32 = std::num::NonZeroU32::new(1_000).unwrap();
+
     fn generate_low_iter(generator: &SpassGenerator) -> String {
-        let salt = generator.salt.unwrap();
-        let iv = generator.iv.unwrap();
-        let plaintext = generator.build_plaintext();
-        let ciphertext = SpassGenerator::encrypt_with_iterations(
-            plaintext.as_bytes(),
-            &generator.password,
-            &salt,
-            &iv,
-            1_000,
-        );
-        let mut blob = Vec::with_capacity(36 + ciphertext.len());
-        blob.extend_from_slice(&salt);
-        blob.extend_from_slice(&iv);
-        blob.extend_from_slice(&ciphertext);
-        general_purpose::STANDARD.encode(&blob)
+        generator.generate_with_iterations(LOW_ITERATIONS)
+    }
+
+    /// Decrypts `content` with the low iteration count.
+    fn decrypt(content: &str) -> SpassResult<DecryptOutcome> {
+        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
+        pipeline().decrypt_to_buffer(content.as_bytes(), &pw)
+    }
+
+    fn fields(entry: EntryRef<'_>) -> [&str; 5] {
+        [
+            entry.url,
+            entry.username,
+            entry.password,
+            entry.name,
+            entry.note,
+        ]
     }
 
     #[test]
@@ -1538,17 +1556,19 @@ mod tests {
             "test note",
         ));
 
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         assert_eq!(outcome.entries.len(), 1);
-        let entry = &outcome.entries.entries()[0];
-        assert_eq!(entry.url.as_str(), "https://example.com");
-        assert_eq!(entry.username.as_str(), "user@example.com");
-        assert_eq!(entry.password.as_str(), "secret");
-        assert_eq!(entry.name.as_str(), "Example");
-        assert_eq!(entry.note.as_str(), "test note");
+        assert_eq!(
+            fields(outcome.entries.get(0).unwrap()),
+            [
+                "https://example.com",
+                "user@example.com",
+                "secret",
+                "Example",
+                "test note"
+            ]
+        );
     }
 
     #[test]
@@ -1564,12 +1584,10 @@ mod tests {
                 "",
             ));
 
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         assert_eq!(outcome.entries.len(), 3);
-        assert_eq!(outcome.entries.entries()[1].username.as_str(), "bob");
+        assert_eq!(outcome.entries.get(1).unwrap().username, "bob");
     }
 
     #[test]
@@ -1577,7 +1595,11 @@ mod tests {
         let generator = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
         let content = generate_low_iter(&generator);
         let pw = EntryPassword::new("wrong_password".to_string());
-        assert!(pipeline().decrypt_string(&content, &pw).is_err());
+        assert!(
+            pipeline()
+                .decrypt_to_buffer(content.as_bytes(), &pw)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1590,23 +1612,17 @@ mod tests {
             "has, commas",
         ));
 
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
-        assert_eq!(
-            outcome.entries.entries()[0].password.as_str(),
-            "pass,with,commas"
-        );
-        assert_eq!(outcome.entries.entries()[0].name.as_str(), "Site, Inc.");
+        let entry = outcome.entries.get(0).unwrap();
+        assert_eq!(entry.password, "pass,with,commas");
+        assert_eq!(entry.name, "Site, Inc.");
     }
 
     #[test]
     fn v30_round_trip_reports_known_v30_status() {
         let generator = generator().entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         match outcome.version_status {
             VersionStatus::Known { version } => assert_eq!(version, SpassFormatVersion::V30),
@@ -1624,9 +1640,7 @@ mod tests {
         let generator = generator()
             .with_version(crate::format::SpassFormatVersion::V31)
             .entry(TestEntry::new("https://x.com", "u", "p", "X", ""));
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         assert_eq!(outcome.entries.len(), 1);
         match outcome.version_status {
@@ -1645,9 +1659,7 @@ mod tests {
         // A valid export with zero saved passwords is not an error, and
         // the status stays Known -- no banner.
         let generator = generator().with_version(crate::format::SpassFormatVersion::V31);
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         assert!(outcome.entries.is_empty());
         assert_matches!(outcome.version_status, VersionStatus::Known { .. });
@@ -1672,9 +1684,7 @@ mod tests {
                 "Example",
                 "",
             ));
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let err = pipeline().decrypt_string(&content, &pw).unwrap_err();
+        let err = decrypt(&generate_low_iter(&generator)).unwrap_err();
 
         match err {
             SpassError::UnknownVersionUnparseable(report) => {
@@ -1699,14 +1709,12 @@ mod tests {
                 "Example",
                 "note",
             ));
-        let content = generate_low_iter(&generator);
-        let pw = EntryPassword::new(TEST_PASSWORD.to_string());
-        let outcome = pipeline().decrypt_string(&content, &pw).unwrap();
+        let outcome = decrypt(&generate_low_iter(&generator)).unwrap();
 
         assert_eq!(outcome.entries.len(), 1);
-        let e = &outcome.entries.entries()[0];
-        assert_eq!(e.url.as_str(), "https://example.com");
-        assert_eq!(e.password.as_str(), "secret");
+        let e = outcome.entries.get(0).unwrap();
+        assert_eq!(e.url, "https://example.com");
+        assert_eq!(e.password, "secret");
 
         match outcome.version_status {
             VersionStatus::BestEffort { report } => {

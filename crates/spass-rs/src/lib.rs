@@ -12,8 +12,8 @@
 //!
 //! # Security
 //!
-//! - The password, the derived key, the decrypted bytes and the AES and CBC cipher state are
-//!   zeroized on drop
+//! - The password, the derived key, every buffer that holds decrypted bytes and the AES and CBC
+//!   cipher state are zeroized on drop
 //! - Constant-time operations prevent timing attacks
 //! - No passwords are logged or exposed in error messages
 //!
@@ -33,14 +33,15 @@
 
 pub mod crypto;
 pub mod domain;
+pub mod entries;
 pub mod export;
 pub mod format;
-pub mod parser;
 pub mod pipeline;
 
 pub use domain::{
     BestEffortReport, DecryptOutcome, ReportSource, SpassError, SpassResult, VersionStatus,
 };
+pub use entries::EntryBuffer;
 
 #[cfg(any(test, feature = "generate-fixtures"))]
 pub mod testkit;

@@ -1,9 +1,11 @@
 //! Benchmarks for decryption operations.
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use spass::crypto::{CipherEngine, KeyDerivation, PBKDF2_ITERATIONS};
+use spass::crypto::{KeyDerivation, PBKDF2_ITERATIONS};
 use spass::domain::EntryPassword;
-use spass::format::SpassDecoder;
+use spass::format::{SpassDecoder, SpassFormatVersion};
+use spass::pipeline::PipelineBuilder;
+use spass::testkit::{SpassGenerator, TestEntry};
 use std::hint::black_box;
 use std::num::NonZeroU32;
 
@@ -57,36 +59,45 @@ fn bench_key_derivation_different_iterations(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_aes_decryption(c: &mut Criterion) {
-    let cipher = CipherEngine::new();
-    let kd = KeyDerivation::new(NonZeroU32::new(1_000).unwrap());
+fn bench_decrypt_to_buffer(c: &mut Criterion) {
+    const ITERATIONS: NonZeroU32 = NonZeroU32::new(1_000).unwrap();
+    const ENTRIES: usize = 10_000;
 
-    // Create encrypted data for benchmarking
     let password = EntryPassword::new("benchmark_password".into());
-    let ciphertext_bytes = [0u8; 256]; // 256 bytes
+    let pipeline = PipelineBuilder::new().iterations(ITERATIONS).build();
 
-    // Create a valid base64-encoded spass structure with ciphertext
-    let mut data = Vec::with_capacity(20 + 16 + 256);
-    data.extend_from_slice(&[0u8; 20]); // salt
-    data.extend_from_slice(&[0u8; 16]); // iv
-    data.extend_from_slice(&ciphertext_bytes); // ciphertext
-    let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
-
-    let decoded = SpassDecoder::new()
-        .decode_from_bytes(base64_data.as_bytes())
-        .unwrap();
-
-    let key = kd.derive_key(&password, decoded.salt()).unwrap();
-
-    c.bench_function("aes256_cbc_decrypt_256_bytes", |b| {
-        b.iter(|| {
-            let _ = cipher.decrypt(
-                black_box(decoded.ciphertext()),
-                black_box(&key),
-                black_box(decoded.iv()),
-            );
+    let mut group = c.benchmark_group("decrypt_to_buffer_10k_entries");
+    for (name, version) in [
+        ("v30", SpassFormatVersion::V30),
+        ("v31", SpassFormatVersion::V31),
+    ] {
+        let entries = (0..ENTRIES).map(|i| {
+            TestEntry::new(
+                format!("https://example{i}.com"),
+                format!("user{i}@example.com"),
+                format!("P@ss#{i:07}!Sec"),
+                format!("Account {i:07}"),
+                if i % 5 == 0 {
+                    format!("note {i}")
+                } else {
+                    String::new()
+                },
+            )
         });
-    });
+        let file = SpassGenerator::new("benchmark_password")
+            .with_version(version)
+            .entries(entries)
+            .generate_with_iterations(ITERATIONS);
+
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                pipeline
+                    .decrypt_to_buffer(black_box(file.as_bytes()), black_box(&password))
+                    .unwrap()
+            });
+        });
+    }
+    group.finish();
 }
 
 fn bench_base64_decode(c: &mut Criterion) {
@@ -113,7 +124,7 @@ criterion_group!(
     benches,
     bench_key_derivation,
     bench_key_derivation_different_iterations,
-    bench_aes_decryption,
+    bench_decrypt_to_buffer,
     bench_base64_decode
 );
 criterion_main!(benches);

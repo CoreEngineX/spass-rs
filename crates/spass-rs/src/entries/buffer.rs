@@ -133,13 +133,20 @@ impl EntryBuffer {
     /// `raw` came from [`Self::into_raw_parts`] and has not been passed here before.
     #[must_use]
     pub unsafe fn from_raw_parts(raw: RawEntryBuffer) -> Self {
-        // SAFETY: `raw` holds the pointer, length and capacity of the `Vec` that `into_raw_parts`
-        // took apart, and the caller guarantees nothing else owns that allocation.
-        let bytes = unsafe { Vec::from_parts(NonNull::new_unchecked(raw.ptr), raw.len, raw.cap) };
+        let RawEntryBuffer {
+            ptr,
+            len,
+            cap,
+            count,
+            index_offset,
+        } = raw;
+        // SAFETY: the parts are the pointer, length and capacity of the `Vec` that
+        // `into_raw_parts` took apart, and the caller guarantees nothing else owns that allocation.
+        let bytes = unsafe { Vec::from_parts(NonNull::new_unchecked(ptr), len, cap) };
         Self {
             bytes,
-            count: raw.count,
-            index_offset: raw.index_offset,
+            count,
+            index_offset,
         }
     }
 

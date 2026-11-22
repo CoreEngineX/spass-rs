@@ -213,8 +213,8 @@ mod tests {
             SpassFormatVersion::V31,
             SpassFormatVersion::V32,
         ] {
-            let d = data(&format!("{}\nrest\n", v.sentinel_str()));
-            assert_eq!(expect_known(d), v);
+            let text = format!("{}\nrest\n", v.sentinel_str());
+            assert_eq!(expect_known(data(&text)), v);
         }
     }
 }

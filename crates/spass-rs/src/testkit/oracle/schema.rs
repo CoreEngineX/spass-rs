@@ -121,7 +121,8 @@ impl ColumnLookup {
                 missing_required_columns: REQUIRED_COLUMNS
                     .iter()
                     .zip(indices.iter())
-                    .filter_map(|(name, idx)| idx.is_none().then(|| (*name).to_string()))
+                    .filter(|(_, idx)| idx.is_none())
+                    .map(|(name, _)| (*name).to_string())
                     .collect(),
                 recognized_columns: recognized,
                 unknown_columns: unknown,

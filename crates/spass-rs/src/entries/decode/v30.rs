@@ -43,15 +43,12 @@ pub(crate) fn decode_v30(plain: Plaintext) -> SpassResult<EntryBuffer> {
     let mut ends = Ends::with_entries(max_records)?;
     let mut records = Records::new(table);
 
-    let header_fields = match records.read(&mut out)? {
-        Some(header) => {
-            check_header(&out, records.field_ends(header))?;
-            header.fields
-        }
-        None => {
-            check_header(&out, &[])?;
-            0
-        }
+    let header_fields = if let Some(header) = records.read(&mut out)? {
+        check_header(&out, records.field_ends(header))?;
+        header.fields
+    } else {
+        check_header(&out, &[])?;
+        0
     };
 
     let mut write = 0;

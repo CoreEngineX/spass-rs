@@ -137,19 +137,18 @@ pub unsafe extern "C" fn spass_decrypt_entries(
     out: *mut SpassEntries,
     status: *mut RustBuffer,
 ) -> i32 {
+    let body = || {
+        // SAFETY: both are valid for their lengths for the whole call by the caller's guarantee.
+        let inputs = unsafe { (borrowed(file, file_len), borrowed(password, password_len)) };
+        match inputs {
+            (Some(file), Some(password)) => decrypt(file, password),
+            (None, _) | (_, None) => failed(SpassFfiError::Internal {
+                detail: "a null input has a nonzero length".to_string(),
+            }),
+        }
+    };
     // SAFETY: `out` and `status` are valid for writes by the caller's guarantee.
-    unsafe {
-        deliver(out, status, || {
-            // SAFETY: both are valid for their lengths for the whole call by the caller's guarantee.
-            let inputs = unsafe { (borrowed(file, file_len), borrowed(password, password_len)) };
-            match inputs {
-                (Some(file), Some(password)) => decrypt(file, password),
-                (None, _) | (_, None) => failed(SpassFfiError::Internal {
-                    detail: "a null input has a nonzero length".to_string(),
-                }),
-            }
-        })
-    }
+    unsafe { deliver(out, status, body) }
 }
 
 /// Zeroes every byte of the capacity of `entries`, then frees it.
